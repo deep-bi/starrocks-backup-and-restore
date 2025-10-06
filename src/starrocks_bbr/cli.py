@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @click.group(no_args_is_help=False)
-@click.version_option(package_name="starrocks-bbr", prog_name="starrocks-bbr")
+@click.version_option(version="0.1.0", prog_name="starrocks-bbr")
 def cli() -> None:
     """StarRocks backup and restore CLI (MVP)."""
 
@@ -95,15 +95,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     argv = [] if argv is None else argv
     try:
         if not argv:
-            # Print help and exit 0 when no args are provided in library mode
             with click.Context(cli) as ctx:
                 click.echo(cli.get_help(ctx))
             return 0
         cli(standalone_mode=False, args=argv)
         return 0
+    except click.exceptions.NoSuchOption as e:
+        click.echo(f"Error: {e}", err=True)
+        return 2
+    except click.ClickException as e:
+        e.show()
+        return 2
     except SystemExit as exc:
         return int(exc.code)
 
 
-if __name__ == "__main__":  # pragma: no cover
+if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

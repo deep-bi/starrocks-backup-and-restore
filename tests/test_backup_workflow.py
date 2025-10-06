@@ -15,7 +15,8 @@ def db_mock(mocker):
     return db
 
 
-def test_backup_full_when_no_previous_backup(tmp_path: Path, mocker, db_mock):
+def test_should_run_full_backup_when_no_previous_successful_backup(tmp_path: Path, mocker, db_mock):
+    """Runs a full backup when there is no FINISHED backup in history (README §3.b.3)."""
     cfg = write_cfg(tmp_path, ["db1.t1", "db2.t2"])
 
     # No previous successful backup
@@ -40,7 +41,8 @@ def test_backup_full_when_no_previous_backup(tmp_path: Path, mocker, db_mock):
     assert any("UPDATE ops.backup_history" in s and "FINISHED" in s for s in executed)
 
 
-def test_backup_incremental_when_previous_backup_exists(tmp_path: Path, mocker, db_mock):
+def test_should_run_incremental_when_previous_backup_exists(tmp_path: Path, mocker, db_mock):
+    """Runs an incremental backup when there is a FINISHED backup, selecting changed partitions (README §3.b.4)."""
     cfg = write_cfg(tmp_path, ["db1.t1"])
 
     # Previous backup exists
