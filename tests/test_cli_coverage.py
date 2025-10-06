@@ -2,7 +2,6 @@ from pathlib import Path
 
 import tempfile
 from click.testing import CliRunner
-import pytest
 
 from starrocks_bbr.cli import cli, main
 from tests.utils import write_cfg
@@ -23,7 +22,8 @@ def test_should_handle_invalid_option_gracefully_with_friendly_message():
 
 def test_should_execute_restore_command_and_echo_message(mocker):
     runner = CliRunner()
-    db_cls = mocker.patch("starrocks_bbr.cli.Database")  # not used but consistent mocking pattern
+    # Mock run_restore to simulate a successful restore without DB logic
+    mocker.patch("starrocks_bbr.cli.run_restore", return_value=None)
 
     with tempfile.TemporaryDirectory() as td:
         cfg = write_cfg(Path(td))
@@ -40,4 +40,4 @@ def test_should_execute_restore_command_and_echo_message(mocker):
             ],
         )
         assert result.exit_code == 0
-        assert "restore:" in result.output
+        assert "restore: completed" in result.output

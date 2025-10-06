@@ -10,6 +10,7 @@ import click
 from .config import load_config
 from .db import Database
 from .backup import run_backup
+from .restore import run_restore
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -87,8 +88,13 @@ def list(config_path: Path) -> None:
 @click.option("--timestamp", "timestamp_str", required=True, type=str)
 def restore(config_path: Path, table_name: str, timestamp_str: str) -> None:
     """Perform point-in-time recovery of a single table."""
-    _ = load_config(config_path)
-    click.echo(f"restore: not implemented yet for table={table_name} ts={timestamp_str}")
+    cfg = load_config(config_path)
+    db = Database(host=cfg.host, port=cfg.port, user=cfg.user, password=cfg.password, database=cfg.database)
+    try:
+        run_restore(db, table_name, timestamp_str)
+    except RuntimeError as e:
+        raise click.ClickException(str(e))
+    click.echo(f"restore: completed for table={table_name} at ts={timestamp_str}")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
