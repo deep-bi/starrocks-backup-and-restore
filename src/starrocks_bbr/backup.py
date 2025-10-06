@@ -63,18 +63,21 @@ def insert_running_history(db: Database, plan: BackupPlan, snapshot_label: str) 
 
 
 def issue_backup_commands(db: Database, plan: BackupPlan, repository: str = "repo") -> None:
+    # Include metadata table in every snapshot ON list
     if plan.backup_type == "full":
         for table in plan.tables:
-            sql = f"BACKUP SNAPSHOT {repository}.{table}"
+            objects = f"{table}, ops.backup_history"
+            sql = f"BACKUP SNAPSHOT {repository} ON ({objects})"
             db.execute(sql)
     else:
         for table in plan.tables:
             partitions = plan.partitions_by_table.get(table) or []
             if partitions:
                 parts = ", ".join(partitions)
-                sql = f"BACKUP SNAPSHOT {repository}.{table} PARTITIONS ({parts})"
+                objects = f"{table} PARTITION ({parts}), ops.backup_history"
             else:
-                sql = f"BACKUP SNAPSHOT {repository}.{table}"
+                objects = f"{table}, ops.backup_history"
+            sql = f"BACKUP SNAPSHOT {repository} ON ({objects})"
             db.execute(sql)
 
 
