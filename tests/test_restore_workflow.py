@@ -70,6 +70,7 @@ def test_should_restore_full_then_incremental_partitions_in_order(db_mock):
             ],
         )
         assert result.exit_code == 0
+        assert db_mock.query.call_count == 4, "Expected 4 query calls for restore workflow"
 
         # Ensure we executed RESTORE commands in the correct order: full first, then partitions
         executed_sqls = [call.args[0] for call in db_mock.execute.call_args_list]

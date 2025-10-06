@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Literal
 
 from .db import Database
 
 
 @dataclass(frozen=True)
 class RestoreStep:
-    kind: str  # 'full' or 'incremental'
+    kind: Literal["full", "incremental"]
     snapshot_label: str
     backup_timestamp: str
     partitions: Optional[List[str]] = None
