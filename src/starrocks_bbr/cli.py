@@ -67,20 +67,28 @@ def backup(config_path: Path) -> None:
 
 @cli.command()
 @_config_option
+def list(config_path: Path) -> None:
+    """Show backup history."""
+    cfg = load_config(config_path)
+    db = Database(host=cfg.host, port=cfg.port, user=cfg.user, password=cfg.password, database=cfg.database)
+    rows = db.query(
+        "SELECT id, backup_type, status, start_time, end_time, snapshot_label, backup_timestamp, database_name, table_name FROM ops.backup_history ORDER BY id"
+    )
+
+    headers = ["ID", "TYPE", "STATUS", "START", "END", "LABEL", "TS", "DB", "TABLE"]
+    click.echo("\t".join(headers))
+    for r in rows:
+        click.echo("\t".join(str(x) if x is not None else "" for x in r))
+
+
+@cli.command()
+@_config_option
 @click.option("--table", "table_name", required=True, type=str)
 @click.option("--timestamp", "timestamp_str", required=True, type=str)
 def restore(config_path: Path, table_name: str, timestamp_str: str) -> None:
     """Perform point-in-time recovery of a single table."""
     _ = load_config(config_path)
     click.echo(f"restore: not implemented yet for table={table_name} ts={timestamp_str}")
-
-
-@cli.command()
-@_config_option
-def list(config_path: Path) -> None:
-    """Show backup history."""
-    _ = load_config(config_path)
-    click.echo("list: not implemented yet (history pending)")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
