@@ -10,6 +10,7 @@ from starrocks_bbr.backup import (
     issue_backup_commands,
     poll_backup_until_done,
     update_history_final,
+    run_backup
 )
 
 
@@ -70,3 +71,35 @@ def test_should_update_history_to_failed_on_failure(fake_db):
     update_history_final(fake_db, "FAILED", None)
     executed = [sql for sql, _ in fake_db._exec_sql]
     assert any("SET status='FAILED'" in s for s in executed)
+
+
+def test_should_mark_failed_when_issue_backup_raises(mocker, fake_db):
+    mocker.patch("starrocks_bbr.backup.decide_backup_plan", return_value=BackupPlan("full", ["t"], {}))
+    mocker.patch("starrocks_bbr.backup.insert_running_history", return_value=None)
+    mocker.patch("starrocks_bbr.backup.issue_backup_commands", side_effect=RuntimeError("boom"))
+    update_spy = mocker.patch("starrocks_bbr.backup.update_history_final")
+
+    with pytest.raises(RuntimeError):
+        run_backup(fake_db, ["t"])
+
+    # Ensure FAILED recorded to avoid stuck RUNNING
+    update_spy.assert_called_once()
+    args, _ = update_spy.call_args
+    assert args[0] is fake_db
+    assert args[1] == "FAILED"
+    assert args[2] is None
+
+
+def test_should_mark_failed_when_poll_raises(mocker, fake_db):
+    mocker.patch("starrocks_bbr.backup.decide_backup_plan", return_value=BackupPlan("full", ["t"], {}))
+    mocker.patch("starrocks_bbr.backup.insert_running_history", return_value=None)
+    mocker.patch("starrocks_bbr.backup.issue_backup_commands", return_value=None)
+    mocker.patch("starrocks_bbr.backup.poll_backup_until_done", side_effect=RuntimeError("poll failed"))
+    update_spy = mocker.patch("starrocks_bbr.backup.update_history_final")
+
+    with pytest.raises(RuntimeError):
+        run_backup(fake_db, ["t"])
+
+    update_spy.assert_called_once()
+    args, _ = update_spy.call_args
+    assert args[1] == "FAILED" and args[2] is None
