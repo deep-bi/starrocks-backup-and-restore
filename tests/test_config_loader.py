@@ -52,8 +52,8 @@ def test_load_config_missing_keys(tmp_path: Path):
 
     with pytest.raises(ValueError) as err:
         load_config(cfg_path)
-
-    assert "Missing required config keys" in str(err.value)
+        
+    assert "error: missing required configuration keys: database" in err.value.args[0]
 
 
 def test_load_config_invalid_tables_type(tmp_path: Path):

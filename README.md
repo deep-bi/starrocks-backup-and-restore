@@ -25,7 +25,7 @@ Minimal Python CLI to orchestrate StarRocks backups and single-table point-in-ti
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -e .
 ```
 
 ## Config
@@ -44,19 +44,19 @@ repository: my_backup_repo
 ## Usage
 ```bash
 # Help
-python -m starrocks_br.cli --help
+starrocks-br --help
 
 # Create metadata
-python -m starrocks_br.cli init --config config.yaml
+starrocks-br init --config config.yaml
 
 # Run backup (auto full/incremental)
-python -m starrocks_br.cli backup --config config.yaml
+starrocks-br backup --config config.yaml
 
 # List history
-python -m starrocks_br.cli list --config config.yaml
+starrocks-br list --config config.yaml
 
 # Restore one table at timestamp
-python -m starrocks_br.cli restore --config config.yaml --table db1.tableA --timestamp "2025-10-06 12:00:00"
+starrocks-br restore --config config.yaml --table db1.tableA --timestamp "2025-10-06 12:00:00"
 ```
 
 ## DR note (cold start)

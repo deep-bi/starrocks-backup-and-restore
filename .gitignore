@@ -5,3 +5,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+starrocks_br.egg-info/
+*.md
+!README.md
+config.yaml

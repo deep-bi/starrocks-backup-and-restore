@@ -23,4 +23,4 @@ def test_should_print_only_headers_when_history_is_empty(monkeypatch, mocker):
         cfg = write_cfg(Path(td))
         result = runner.invoke(cli, ["list", "--config", str(cfg)])
         assert result.exit_code == 0
-        assert "ID\tTYPE\tSTATUS" in result.output
+        assert "no backup history found" == result.output.strip()

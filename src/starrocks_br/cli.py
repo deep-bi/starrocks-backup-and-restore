@@ -13,7 +13,11 @@ from .backup import run_backup
 from .restore import run_restore
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
 logger = logging.getLogger(__name__)
 
 
@@ -31,50 +35,68 @@ def _config_option(f):
 @_config_option
 def init(config_path: Path) -> None:
     """Create metadata table."""
+    logger.info("initializing metadata structures...")
     cfg = load_config(config_path)
+    
+    logger.info(f"connecting to StarRocks at {cfg.host}:{cfg.port}")
     db = Database(host=cfg.host, port=cfg.port, user=cfg.user, password=cfg.password, database=cfg.database)
 
     create_db_sql = "CREATE DATABASE IF NOT EXISTS ops"
-    create_table_sql = (
-        "CREATE TABLE IF NOT EXISTS ops.backup_history ("
-        " id BIGINT AUTO_INCREMENT PRIMARY KEY,"
-        " backup_type VARCHAR(16) NOT NULL,"
-        " status VARCHAR(16) NOT NULL,"
-        " start_time DATETIME NOT NULL,"
-        " end_time DATETIME NULL,"
-        " snapshot_label VARCHAR(255) NOT NULL,"
-        " backup_timestamp DATETIME NULL,"
-        " database_name VARCHAR(128) NOT NULL,"
-        " table_name VARCHAR(128) NULL,"
-        " partitions_json TEXT NULL,"
-        " error_message TEXT NULL"
-        ") ENGINE=OLAP"
+    create_table_sql = """
+    CREATE TABLE IF NOT EXISTS ops.backup_history (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        backup_type VARCHAR(16) NOT NULL,
+        status VARCHAR(16) NOT NULL,
+        start_time DATETIME NOT NULL,
+        end_time DATETIME,
+        snapshot_label VARCHAR(255) NOT NULL,
+        backup_timestamp DATETIME NULL,
+        database_name VARCHAR(128) NOT NULL,
+        table_name VARCHAR(128) NULL,
+        partitions_json STRING,
+        error_message STRING
     )
+    PRIMARY KEY (id)
+    """
 
+    logger.info("creating database 'ops' if not exists")
     db.execute(create_db_sql)
+    logger.info("creating table 'ops.backup_history' if not exists")
     db.execute(create_table_sql)
-    click.echo("init: metadata structures ensured")
+    click.echo("✓ init: metadata structures created successfully")
 
 
 @cli.command()
 @_config_option
 def backup(config_path: Path) -> None:
     """Run backup workflow automatically."""
+    logger.info("starting backup workflow...")
     cfg = load_config(config_path)
+    
+    logger.info(f"connecting to StarRocks at {cfg.host}:{cfg.port}")
+    logger.info(f"target database: {cfg.database}")
+    logger.info(f"repository: {cfg.repository}")
+    logger.info(f"tables to backup: {', '.join(cfg.tables)}")
+    
     db = Database(host=cfg.host, port=cfg.port, user=cfg.user, password=cfg.password, database=cfg.database)
     run_backup(db, cfg.tables, cfg.repository)
-    click.echo("backup: completed")
+    click.echo("✓ backup: completed successfully")
 
 
 @cli.command()
 @_config_option
 def list(config_path: Path) -> None:
     """Show backup history."""
+    logger.info("fetching backup history...")
     cfg = load_config(config_path)
     db = Database(host=cfg.host, port=cfg.port, user=cfg.user, password=cfg.password, database=cfg.database)
     rows = db.query(
         "SELECT id, backup_type, status, start_time, end_time, snapshot_label, backup_timestamp, database_name, table_name FROM ops.backup_history ORDER BY id"
     )
+
+    if not rows:
+        click.echo("no backup history found")
+        return
 
     headers = ["ID", "TYPE", "STATUS", "START", "END", "LABEL", "TS", "DB", "TABLE"]
     click.echo("\t".join(headers))
@@ -88,13 +110,20 @@ def list(config_path: Path) -> None:
 @click.option("--timestamp", "timestamp_str", required=True, type=str)
 def restore(config_path: Path, table_name: str, timestamp_str: str) -> None:
     """Perform point-in-time recovery of a single table."""
+    logger.info("starting restore workflow...")
+    logger.info(f"target table: {table_name}")
+    logger.info(f"target timestamp: {timestamp_str}")
+    
     cfg = load_config(config_path)
+    logger.info(f"connecting to StarRocks at {cfg.host}:{cfg.port}")
+    logger.info(f"repository: {cfg.repository}")
+    
     db = Database(host=cfg.host, port=cfg.port, user=cfg.user, password=cfg.password, database=cfg.database)
     try:
         run_restore(db, table_name, timestamp_str, cfg.repository)
     except RuntimeError as e:
-        raise click.ClickException(str(e))
-    click.echo(f"restore: completed for table={table_name} at ts={timestamp_str}")
+        raise click.ClickException(f"error: {e}")
+    click.echo(f"✓ restore: completed successfully for table={table_name} at ts={timestamp_str}")
 
 
 def main(argv: Optional[List[str]] = None) -> int:
