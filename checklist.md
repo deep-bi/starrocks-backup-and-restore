@@ -26,7 +26,7 @@ This checklist is organized into key areas, from initial setup and strategy to a
 ### Phase 2: Automation & Tooling Development
 
 * ` ` **Pre-Backup Checks**: Before initiating any backup, the script must perform these checks:
-* ` ` Verify FE and BE cluster health is nominal.
+* `X` Verify FE and BE cluster health is nominal.
 * ` ` Query `ops.run_status` to ensure no conflicting backup or restore job is active.
 * `X` Test repository connectivity and write permissions.
 * ` ` Check that the `/starrocks/data/snapshot` directory has more than 15% free disk space.
