@@ -55,3 +55,10 @@ def build_incremental_backup_command(partitions: List[Dict[str, str]], repositor
     ON ({on_clause})"""
     
     return command
+
+
+def build_monthly_backup_command(database: str, repository: str, label: str) -> str:
+    """Build BACKUP command for monthly full database backup."""
+    return f"""
+    BACKUP DATABASE {database} SNAPSHOT {label}
+    TO {repository}"""
