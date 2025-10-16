@@ -37,7 +37,7 @@ def poll_backup_status(db, label: str, max_polls: int = MAX_POLLS, poll_interval
             else:
                 state = result[1] if len(result) > 1 else "UNKNOWN"
             
-            if state in ["FINISHED", "FAILED"]:
+            if state in ["FINISHED", "FAILED", "UNKNOWN"]:
                 return {"state": state, "label": label}
             
             time.sleep(poll_interval)

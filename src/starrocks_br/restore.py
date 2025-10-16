@@ -64,7 +64,7 @@ def poll_restore_status(db, label: str, max_polls: int = MAX_POLLS, poll_interva
             else:
                 state = result[1] if len(result) > 1 else "UNKNOWN"
             
-            if state in ["FINISHED", "FAILED", "CANCELLED"]:
+            if state in ["FINISHED", "FAILED", "CANCELLED", "UNKNOWN"]:
                 return {"state": state, "label": label}
             
             time.sleep(poll_interval)
