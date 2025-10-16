@@ -41,6 +41,25 @@ PROPERTIES (
 
 ## Commands
 
+### Initialize Schema
+
+Before running backups, initialize the ops database and control tables:
+
+```bash
+starrocks-br init --config config.yaml
+```
+
+**What it does:**
+- Creates `ops` database
+- Creates `ops.table_inventory`: Table backup eligibility configuration
+- Creates `ops.backup_history`: Backup operation history
+- Creates `ops.restore_history`: Restore operation history
+- Creates `ops.run_status`: Job concurrency control
+
+**Next step:** Populate `ops.table_inventory` with your tables and their backup eligibility flags.
+
+**Note:** If you skip this step, the ops schema will be auto-created on your first backup/restore operation (with a warning).
+
 ### Backup Commands
 
 #### 1. Incremental Backup (Daily)
@@ -123,6 +142,16 @@ starrocks-br restore-partition \
 
 ## Example Usage Scenarios
 
+### Initial Setup
+
+```bash
+# 1. Initialize ops schema (run once)
+starrocks-br init --config config.yaml
+
+# 2. Populate table inventory (in StarRocks)
+# INSERT INTO ops.table_inventory VALUES (...);
+```
+
 ### Daily Production Backup (Mon-Sat)
 
 ```bash
@@ -195,7 +224,7 @@ WHERE state = 'ACTIVE';
 
 ## Testing
 
-The project includes comprehensive tests (134 tests, 90% coverage):
+The project includes comprehensive tests (142 tests, 90% coverage):
 
 ```bash
 # Run all tests
@@ -218,11 +247,11 @@ pytest tests/test_cli.py -v
 - Job slot reservation (concurrency control)
 - Label generation with collision handling
 - Incremental/weekly/monthly backup planners with table eligibility filtering
-- Schema initialization (ops tables)
+- Schema initialization (ops tables) with auto-creation
 - Backup & restore history logging
 - Backup executor with polling
 - Restore operations with polling
-- **CLI commands (all 4 commands implemented)**
+- **CLI commands (5 commands: init, 3 backup types, restore)**
 
 📋 **Optional (deferred):**
 - Exponential backoff retry for job conflicts
