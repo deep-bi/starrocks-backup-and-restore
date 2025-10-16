@@ -17,13 +17,7 @@ def populate_table_inventory_for_testing(db) -> None:
         db.execute("""
             INSERT INTO ops.table_inventory 
             (database_name, table_name, table_type, backup_eligible, incremental_eligible, weekly_eligible, monthly_eligible)
-            VALUES ('%s', '%s', '%s', %s, %s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-            table_type = VALUES(table_type),
-            backup_eligible = VALUES(backup_eligible),
-            incremental_eligible = VALUES(incremental_eligible),
-            weekly_eligible = VALUES(weekly_eligible),
-            monthly_eligible = VALUES(monthly_eligible)
+            VALUES ('%s', '%s', '%s', %s, %s, %s, %s);
         """ % data)
 
 def test_should_create_ops_database(mocker):
