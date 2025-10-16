@@ -33,7 +33,7 @@ This checklist is organized into key areas, from initial setup and strategy to a
 * `X` If all checks pass, mark the job as `ACTIVE` in `ops.run_status`.
 * ` ` **Backup Execution Logic**:
 * `X` **For Daily Incrementals**: Dynamically query `information_schema.partitions` to find partitions updated in the last N days and build the `BACKUP ... PARTITION (...)` command .
-* ` ` **For Weekly Fulls**: Query the `table_inventory` to get the list of dimension and non-partitioned tables to include in the `BACKUP ... ON (TABLE ...)` command.
+* `X` **For Weekly Fulls**: Query the `table_inventory` to get the list of dimension and non-partitioned tables to include in the `BACKUP ... ON (TABLE ...)` command.
 * `X` **For Monthly Baselines**: Generate a simple `BACKUP DATABASE ...` command for the entire database.
 * `X` Generate a unique, standardized snapshot label for each job (e.g., `dbvrmd1_20250914_inc`).
 * ` ` **Post-Backup Logic**:

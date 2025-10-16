@@ -62,3 +62,46 @@ def build_monthly_backup_command(database: str, repository: str, label: str) -> 
     return f"""
     BACKUP DATABASE {database} SNAPSHOT {label}
     TO {repository}"""
+
+
+def find_weekly_eligible_tables(db) -> List[Dict[str, str]]:
+    """Find tables eligible for weekly backup from table_inventory.
+    
+    Returns list of dictionaries with keys: database, table.
+    """
+    query = """
+    SELECT database_name, table_name
+    FROM ops.table_inventory
+    WHERE weekly_eligible = TRUE
+    ORDER BY database_name, table_name
+    """
+    
+    rows = db.query(query)
+    
+    return [
+        {
+            "database": row[0],
+            "table": row[1]
+        }
+        for row in rows
+    ]
+
+
+def build_weekly_backup_command(tables: List[Dict[str, str]], repository: str, label: str) -> str:
+    """Build BACKUP command for weekly backup of specific tables."""
+    if not tables:
+        return ""
+    
+    on_clauses = []
+    for table in tables:
+        full_table = f"{table['database']}.{table['table']}"
+        on_clauses.append(f"TABLE {full_table}")
+    
+    on_clause = ",\n        ".join(on_clauses)
+    
+    command = f"""
+    BACKUP SNAPSHOT {label}
+    TO {repository}
+    ON ({on_clause})"""
+    
+    return command
