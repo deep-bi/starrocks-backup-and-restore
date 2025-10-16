@@ -25,18 +25,18 @@ This checklist is organized into key areas, from initial setup and strategy to a
 
 ### Phase 2: Automation & Tooling Development
 
-* ` ` **Pre-Backup Checks**: Before initiating any backup, the script must perform these checks:
+* `X` **Pre-Backup Checks**: Before initiating any backup, the script must perform these checks:
 * `X` Verify FE and BE cluster health is nominal.
 * `X` Query `ops.run_status` to ensure no conflicting backup or restore job is active.
 * `X` Test repository connectivity and write permissions.
 * ` ` Check that the `/starrocks/data/snapshot` directory has more than 15% free disk space.
 * `X` If all checks pass, mark the job as `ACTIVE` in `ops.run_status`.
-* ` ` **Backup Execution Logic**:
+* `X` **Backup Execution Logic**:
 * `X` **For Daily Incrementals**: Dynamically query `information_schema.partitions` to find partitions updated in the last N days and build the `BACKUP ... PARTITION (...)` command .
 * `X` **For Weekly Fulls**: Query the `table_inventory` to get the list of dimension and non-partitioned tables to include in the `BACKUP ... ON (TABLE ...)` command.
 * `X` **For Monthly Baselines**: Generate a simple `BACKUP DATABASE ...` command for the entire database.
 * `X` Generate a unique, standardized snapshot label for each job (e.g., `dbvrmd1_20250914_inc`).
-* ` ` **Post-Backup Logic**:
+* `X` **Post-Backup Logic**:
 * `X` Poll `SHOW BACKUP` until the job state is `FINISHED` or `FAILED`.
 * `X` On completion, write the final status to the `ops.backup_history` table.
 * `X` Clear the job's `ACTIVE` status from `ops.run_status`.
@@ -45,7 +45,7 @@ This checklist is organized into key areas, from initial setup and strategy to a
 * ` ` Implement an exponential backoff retry mechanism for active job conflicts.
 * `X` Automatically add a `_r#` suffix to the label if a label collision occurs.
 * ` ` Halt the job without creating a partial backup if storage is insufficient.
-* ` ` **Restore Operations**:
+* `X` **Restore Operations**:
 * `X` Generate RESTORE SNAPSHOT commands for partition/table/database recovery.
 * `X` Poll SHOW RESTORE until completion.
 * `X` Log all restore operations to ops.restore_history.

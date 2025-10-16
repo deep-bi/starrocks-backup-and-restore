@@ -1,149 +1,364 @@
-from __future__ import annotations
-
-import sys
-import logging
-from pathlib import Path
-from typing import List, Optional
-
 import click
-
-from .config import load_config
-from .db import Database
-from .backup import run_backup
-from .restore import run_restore
-
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-logger = logging.getLogger(__name__)
+import sys
+from datetime import datetime
+from . import config as config_module
+from . import db
+from . import health
+from . import repository
+from . import concurrency
+from . import planner
+from . import labels
+from . import executor
+from . import restore
 
 
-@click.group(no_args_is_help=False)
-@click.version_option(version="0.1.0", prog_name="starrocks-bbr")
-def cli() -> None:
-    """StarRocks backup and restore CLI (MVP)."""
+@click.group()
+def cli():
+    """StarRocks Backup & Restore automation tool."""
+    pass
 
 
-def _config_option(f):
-    return click.option("--config", "config_path", type=click.Path(exists=True, path_type=Path), required=True)(f)
+@cli.group()
+def backup():
+    """Backup commands."""
+    pass
 
 
-@cli.command()
-@_config_option
-def init(config_path: Path) -> None:
-    """Create metadata table."""
-    logger.info("initializing metadata structures...")
-    cfg = load_config(config_path)
+@backup.command('incremental')
+@click.option('--config', required=True, help='Path to config YAML file')
+@click.option('--days', type=int, required=True, help='Number of days to look back for changed partitions')
+def backup_incremental(config, days):
+    """Run incremental backup of recently changed partitions.
     
-    logger.info(f"connecting to StarRocks at {cfg.host}:{cfg.port}")
-    db = Database(host=cfg.host, port=cfg.port, user=cfg.user, password=cfg.password, database=cfg.database)
-
-    create_db_sql = "CREATE DATABASE IF NOT EXISTS ops"
-    create_table_sql = """
-    CREATE TABLE IF NOT EXISTS ops.backup_history (
-        id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        backup_type VARCHAR(16) NOT NULL,
-        status VARCHAR(16) NOT NULL,
-        start_time DATETIME NOT NULL,
-        end_time DATETIME,
-        snapshot_label VARCHAR(255) NOT NULL,
-        backup_timestamp DATETIME NULL,
-        database_name VARCHAR(128) NOT NULL,
-        table_name VARCHAR(128) NULL,
-        partitions_json STRING,
-        error_message STRING
-    )
-    PRIMARY KEY (id)
+    Flow: load config → check health → ensure repository → reserve job slot →
+    find recent partitions → generate label → build backup command → execute backup
     """
-
-    logger.info("creating database 'ops' if not exists")
-    db.execute(create_db_sql)
-    logger.info("creating table 'ops.backup_history' if not exists")
-    db.execute(create_table_sql)
-    click.echo("✓ init: metadata structures created successfully")
-
-
-@cli.command()
-@_config_option
-def backup(config_path: Path) -> None:
-    """Run backup workflow automatically."""
-    logger.info("starting backup workflow...")
-    cfg = load_config(config_path)
-    
-    logger.info(f"connecting to StarRocks at {cfg.host}:{cfg.port}")
-    logger.info(f"target database: {cfg.database}")
-    logger.info(f"repository: {cfg.repository}")
-    logger.info(f"tables to backup: {', '.join(cfg.tables)}")
-    
-    db = Database(host=cfg.host, port=cfg.port, user=cfg.user, password=cfg.password, database=cfg.database)
-    run_backup(db, cfg.tables, cfg.repository)
-    click.echo("✓ backup: completed successfully")
-
-
-@cli.command()
-@_config_option
-def list(config_path: Path) -> None:
-    """Show backup history."""
-    logger.info("fetching backup history...")
-    cfg = load_config(config_path)
-    db = Database(host=cfg.host, port=cfg.port, user=cfg.user, password=cfg.password, database=cfg.database)
-    rows = db.query(
-        "SELECT id, backup_type, status, start_time, end_time, snapshot_label, backup_timestamp, database_name, table_name FROM ops.backup_history ORDER BY id"
-    )
-
-    if not rows:
-        click.echo("no backup history found")
-        return
-
-    headers = ["ID", "TYPE", "STATUS", "START", "END", "LABEL", "TS", "DB", "TABLE"]
-    click.echo("\t".join(headers))
-    for r in rows:
-        click.echo("\t".join(str(x) if x is not None else "" for x in r))
-
-
-@cli.command()
-@_config_option
-@click.option("--table", "table_name", required=True, type=str)
-@click.option("--timestamp", "timestamp_str", required=True, type=str)
-def restore(config_path: Path, table_name: str, timestamp_str: str) -> None:
-    """Perform point-in-time recovery of a single table."""
-    logger.info("starting restore workflow...")
-    logger.info(f"target table: {table_name}")
-    logger.info(f"target timestamp: {timestamp_str}")
-    
-    cfg = load_config(config_path)
-    logger.info(f"connecting to StarRocks at {cfg.host}:{cfg.port}")
-    logger.info(f"repository: {cfg.repository}")
-    
-    db = Database(host=cfg.host, port=cfg.port, user=cfg.user, password=cfg.password, database=cfg.database)
     try:
-        run_restore(db, table_name, timestamp_str, cfg.repository)
+        cfg = config_module.load_config(config)
+        config_module.validate_config(cfg)
+        
+        database = db.StarRocksDB(
+            host=cfg['host'],
+            port=cfg['port'],
+            user=cfg['user'],
+            password=cfg.get('password', ''),
+            database=cfg['database']
+        )
+        
+        with database:
+            healthy, message = health.check_cluster_health(database)
+            if not healthy:
+                click.echo(f"Error: Cluster health check failed: {message}", err=True)
+                sys.exit(1)
+            
+            click.echo(f"✓ Cluster health: {message}")
+            
+            repository.ensure_repository(database, {
+                'name': cfg['repository'],
+                'type': 's3',
+                'endpoint': cfg.get('endpoint', ''),
+                'bucket': cfg.get('bucket', ''),
+                'prefix': cfg.get('prefix', '/'),
+                'access_key': cfg.get('access_key', ''),
+                'secret_key': cfg.get('secret_key', ''),
+                'force_https': cfg.get('force_https', True)
+            })
+            
+            click.echo(f"✓ Repository '{cfg['repository']}' verified")
+            
+            today = datetime.now().strftime("%Y-%m-%d")
+            label = labels.generate_label(cfg['database'], today, 'inc')
+            
+            click.echo(f"✓ Generated label: {label}")
+            
+            concurrency.reserve_job_slot(database, scope='backup', label=label)
+            
+            click.echo(f"✓ Job slot reserved")
+            
+            partitions = planner.find_recent_partitions(database, days)
+            
+            if not partitions:
+                click.echo("Warning: No partitions found to backup", err=True)
+                sys.exit(1)
+            
+            click.echo(f"✓ Found {len(partitions)} partition(s) to backup")
+            
+            backup_command = planner.build_incremental_backup_command(
+                partitions, cfg['repository'], label
+            )
+            
+            click.echo("Starting incremental backup...")
+            result = executor.execute_backup(
+                database,
+                backup_command,
+                repository=cfg['repository'],
+                backup_type='incremental',
+                scope='backup'
+            )
+            
+            if result['success']:
+                click.echo(f"✓ Backup completed successfully: {result['final_status']['state']}")
+                sys.exit(0)
+            else:
+                click.echo(f"Error: Backup failed: {result['error_message']}", err=True)
+                sys.exit(1)
+                
+    except FileNotFoundError as e:
+        click.echo(f"Error: Config file not found: {e}", err=True)
+        sys.exit(1)
+    except ValueError as e:
+        click.echo(f"Error: Configuration error: {e}", err=True)
+        sys.exit(1)
     except RuntimeError as e:
-        raise click.ClickException(f"error: {e}")
-    click.echo(f"✓ restore: completed successfully for table={table_name} at ts={timestamp_str}")
-
-
-def main(argv: Optional[List[str]] = None) -> int:
-    argv = [] if argv is None else argv
-    try:
-        if not argv:
-            with click.Context(cli) as ctx:
-                click.echo(cli.get_help(ctx))
-            return 0
-        cli(standalone_mode=False, args=argv)
-        return 0
-    except click.exceptions.NoSuchOption as e:
         click.echo(f"Error: {e}", err=True)
-        return 2
-    except click.ClickException as e:
-        e.show()
-        return 2
-    except SystemExit as exc:
-        return int(exc.code)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error: Unexpected error: {e}", err=True)
+        sys.exit(1)
 
 
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+@backup.command('weekly')
+@click.option('--config', required=True, help='Path to config YAML file')
+def backup_weekly(config):
+    """Run weekly full backup of dimension and non-partitioned tables.
+    
+    Flow: load config → check health → ensure repository → reserve job slot →
+    find weekly tables → generate label → build backup command → execute backup
+    """
+    try:
+        cfg = config_module.load_config(config)
+        config_module.validate_config(cfg)
+        
+        database = db.StarRocksDB(
+            host=cfg['host'],
+            port=cfg['port'],
+            user=cfg['user'],
+            password=cfg.get('password', ''),
+            database=cfg['database']
+        )
+        
+        with database:
+            healthy, message = health.check_cluster_health(database)
+            if not healthy:
+                click.echo(f"Error: Cluster health check failed: {message}", err=True)
+                sys.exit(1)
+            
+            click.echo(f"✓ Cluster health: {message}")
+            
+            repository.ensure_repository(database, {
+                'name': cfg['repository'],
+                'type': 's3',
+                'endpoint': cfg.get('endpoint', ''),
+                'bucket': cfg.get('bucket', ''),
+                'prefix': cfg.get('prefix', '/'),
+                'access_key': cfg.get('access_key', ''),
+                'secret_key': cfg.get('secret_key', ''),
+                'force_https': cfg.get('force_https', True)
+            })
+            
+            click.echo(f"✓ Repository '{cfg['repository']}' verified")
+            
+            today = datetime.now().strftime("%Y-%m-%d")
+            label = labels.generate_label(cfg['database'], today, 'weekly')
+            
+            click.echo(f"✓ Generated label: {label}")
+            
+            concurrency.reserve_job_slot(database, scope='backup', label=label)
+            
+            click.echo(f"✓ Job slot reserved")
+            
+            tables = planner.find_weekly_eligible_tables(database)
+            
+            if not tables:
+                click.echo("Warning: No tables found to backup", err=True)
+                sys.exit(1)
+            
+            click.echo(f"✓ Found {len(tables)} table(s) to backup")
+            
+            backup_command = planner.build_weekly_backup_command(
+                tables, cfg['repository'], label
+            )
+            
+            click.echo("Starting weekly backup...")
+            result = executor.execute_backup(
+                database,
+                backup_command,
+                repository=cfg['repository'],
+                backup_type='weekly',
+                scope='backup'
+            )
+            
+            if result['success']:
+                click.echo(f"✓ Backup completed successfully: {result['final_status']['state']}")
+                sys.exit(0)
+            else:
+                click.echo(f"Error: Backup failed: {result['error_message']}", err=True)
+                sys.exit(1)
+                
+    except FileNotFoundError as e:
+        click.echo(f"Error: Config file not found: {e}", err=True)
+        sys.exit(1)
+    except ValueError as e:
+        click.echo(f"Error: Configuration error: {e}", err=True)
+        sys.exit(1)
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error: Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@backup.command('monthly')
+@click.option('--config', required=True, help='Path to config YAML file')
+def backup_monthly(config):
+    """Run monthly full database backup.
+    
+    Flow: load config → check health → ensure repository → reserve job slot →
+    generate label → build database backup command → execute backup
+    """
+    try:
+        cfg = config_module.load_config(config)
+        config_module.validate_config(cfg)
+        
+        database = db.StarRocksDB(
+            host=cfg['host'],
+            port=cfg['port'],
+            user=cfg['user'],
+            password=cfg.get('password', ''),
+            database=cfg['database']
+        )
+        
+        with database:
+            healthy, message = health.check_cluster_health(database)
+            if not healthy:
+                click.echo(f"Error: Cluster health check failed: {message}", err=True)
+                sys.exit(1)
+            
+            click.echo(f"✓ Cluster health: {message}")
+            
+            repository.ensure_repository(database, {
+                'name': cfg['repository'],
+                'type': 's3',
+                'endpoint': cfg.get('endpoint', ''),
+                'bucket': cfg.get('bucket', ''),
+                'prefix': cfg.get('prefix', '/'),
+                'access_key': cfg.get('access_key', ''),
+                'secret_key': cfg.get('secret_key', ''),
+                'force_https': cfg.get('force_https', True)
+            })
+            
+            click.echo(f"✓ Repository '{cfg['repository']}' verified")
+            
+            today = datetime.now().strftime("%Y-%m-%d")
+            label = labels.generate_label(cfg['database'], today, 'monthly')
+            
+            click.echo(f"✓ Generated label: {label}")
+            
+            concurrency.reserve_job_slot(database, scope='backup', label=label)
+            
+            click.echo(f"✓ Job slot reserved")
+            
+            backup_command = planner.build_monthly_backup_command(
+                cfg['database'], cfg['repository'], label
+            )
+            
+            click.echo("Starting monthly backup...")
+            result = executor.execute_backup(
+                database,
+                backup_command,
+                repository=cfg['repository'],
+                backup_type='monthly',
+                scope='backup'
+            )
+            
+            if result['success']:
+                click.echo(f"✓ Backup completed successfully: {result['final_status']['state']}")
+                sys.exit(0)
+            else:
+                click.echo(f"Error: Backup failed: {result['error_message']}", err=True)
+                sys.exit(1)
+                
+    except FileNotFoundError as e:
+        click.echo(f"Error: Config file not found: {e}", err=True)
+        sys.exit(1)
+    except ValueError as e:
+        click.echo(f"Error: Configuration error: {e}", err=True)
+        sys.exit(1)
+    except RuntimeError as e:
+        click.echo(f"Error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error: Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+@cli.command('restore-partition')
+@click.option('--config', required=True, help='Path to config YAML file')
+@click.option('--backup-label', required=True, help='Backup label to restore from')
+@click.option('--table', required=True, help='Table name in format database.table')
+@click.option('--partition', required=True, help='Partition name to restore')
+def restore_partition(config, backup_label, table, partition):
+    """Restore a single partition from a backup.
+    
+    Flow: load config → build restore command → execute restore → log history
+    """
+    try:
+        cfg = config_module.load_config(config)
+        config_module.validate_config(cfg)
+        
+        if '.' not in table:
+            click.echo(f"Error: Table must be in format database.table", err=True)
+            sys.exit(1)
+        
+        database_name, table_name = table.split('.', 1)
+        
+        database = db.StarRocksDB(
+            host=cfg['host'],
+            port=cfg['port'],
+            user=cfg['user'],
+            password=cfg.get('password', ''),
+            database=cfg['database']
+        )
+        
+        with database:
+            click.echo(f"Restoring partition {partition} of {table} from backup {backup_label}...")
+            
+            restore_command = restore.build_partition_restore_command(
+                database=database_name,
+                table=table_name,
+                partition=partition,
+                backup_label=backup_label,
+                repository=cfg['repository']
+            )
+            
+            result = restore.execute_restore(
+                database,
+                restore_command,
+                backup_label=backup_label,
+                restore_type='partition',
+                repository=cfg['repository'],
+                scope='restore'
+            )
+            
+            if result['success']:
+                click.echo(f"✓ Restore completed successfully: {result['final_status']['state']}")
+                sys.exit(0)
+            else:
+                click.echo(f"Error: Restore failed: {result['error_message']}", err=True)
+                sys.exit(1)
+                
+    except FileNotFoundError as e:
+        click.echo(f"Error: Config file not found: {e}", err=True)
+        sys.exit(1)
+    except ValueError as e:
+        click.echo(f"Error: Configuration error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error: Unexpected error: {e}", err=True)
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    cli()
+
