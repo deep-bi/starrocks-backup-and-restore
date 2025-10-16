@@ -1,5 +1,6 @@
 import time
-from typing import Dict, List
+from typing import Dict, Optional
+from . import history, concurrency
 
 MAX_POLLS = 21600 # 6 hours
 
@@ -47,7 +48,16 @@ def poll_backup_status(db, label: str, max_polls: int = MAX_POLLS, poll_interval
     return {"state": "TIMEOUT", "label": label}
 
 
-def execute_backup(db, backup_command: str, max_polls: int = 30, poll_interval: float = 1.0) -> Dict:
+def execute_backup(
+    db,
+    backup_command: str,
+    max_polls: int = MAX_POLLS,
+    poll_interval: float = 1.0,
+    *,
+    repository: Optional[str] = None,
+    backup_type: Optional[str] = None,
+    scope: str = "backup",
+) -> Dict:
     """Execute a complete backup workflow: submit command and monitor progress.
     
     Returns dictionary with keys: success, final_status, error_message
@@ -65,6 +75,27 @@ def execute_backup(db, backup_command: str, max_polls: int = 30, poll_interval: 
         final_status = poll_backup_status(db, label, max_polls, poll_interval)
         
         success = final_status["state"] == "FINISHED"
+
+        try:
+            history.log_backup(
+                db,
+                {
+                    "label": label,
+                    "backup_type": backup_type or "unknown",
+                    "status": final_status["state"],
+                    "repository": repository or "unknown",
+                    "started_at": None,
+                    "finished_at": None,
+                    "error_message": None if success else (final_status["state"] or ""),
+                },
+            )
+        except Exception:
+            pass
+
+        try:
+            concurrency.complete_job_slot(db, scope=scope, label=label, final_state=final_status["state"])
+        except Exception:
+            pass
         
         return {
             "success": success,

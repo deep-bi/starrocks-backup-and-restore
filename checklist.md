@@ -38,8 +38,8 @@ This checklist is organized into key areas, from initial setup and strategy to a
 * `X` Generate a unique, standardized snapshot label for each job (e.g., `dbvrmd1_20250914_inc`).
 * ` ` **Post-Backup Logic**:
 * `X` Poll `SHOW BACKUP` until the job state is `FINISHED` or `FAILED`.
-* ` ` On completion, write the final status, byte count, and object count to the `ops.backup_history` table.
-* ` ` Clear the job's `ACTIVE` status from `ops.run_status`.
+* `X` On completion, write the final status to the `ops.backup_history` table.
+* `X` Clear the job's `ACTIVE` status from `ops.run_status`.
 * ` ` **Failure Handling**: The script must gracefully handle common errors:
 * ` ` Immediately fail and alert on repository connectivity issues.
 * ` ` Implement an exponential backoff retry mechanism for active job conflicts.

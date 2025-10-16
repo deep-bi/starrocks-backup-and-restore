@@ -107,7 +107,8 @@ def test_should_execute_full_backup_workflow(mocker):
     
     assert result["success"] is True
     assert result["final_status"]["state"] == "FINISHED"
-    assert db.execute.call_count == 1
+    # execute called: 1) submit backup, 2) log history, 3) complete job slot
+    assert db.execute.call_count == 3
     assert db.query.call_count == 2
 
 
@@ -136,3 +137,78 @@ def test_should_handle_backup_polling_failure_in_workflow(mocker):
     assert result["success"] is False
     assert result["final_status"]["state"] == "ERROR" 
     assert "Backup failed with state: ERROR" in result["error_message"]
+
+
+def test_should_log_history_and_finalize_on_success(mocker):
+    db = mocker.Mock()
+    db.execute.return_value = None
+    db.query.side_effect = [
+        [{"label": "test_backup", "state": "RUNNING"}],
+        [{"label": "test_backup", "state": "FINISHED"}],
+    ]
+
+    log_backup = mocker.patch("starrocks_br.history.log_backup")
+    complete_slot = mocker.patch("starrocks_br.concurrency.complete_job_slot")
+
+    backup_command = "BACKUP SNAPSHOT test_backup TO repo"
+
+    result = executor.execute_backup(
+        db,
+        backup_command,
+        max_polls=3,
+        poll_interval=0.01,
+        repository="repo",
+        backup_type="weekly",
+        scope="backup",
+    )
+
+    assert result["success"] is True
+    assert log_backup.call_count == 1
+    entry = log_backup.call_args[0][1]
+    assert entry["label"] == "test_backup"
+    assert entry["status"] == "FINISHED"
+    assert entry["repository"] == "repo"
+    assert entry["backup_type"] == "weekly"
+
+    complete_slot.assert_called_once()
+    args, kwargs = complete_slot.call_args
+    assert args[0] is db
+    assert kwargs.get("scope") == "backup"
+    assert kwargs.get("label") == "test_backup"
+    assert kwargs.get("final_state") == "FINISHED"
+
+
+def test_should_log_history_and_finalize_on_failure(mocker):
+    db = mocker.Mock()
+    db.execute.return_value = None
+    db.query.side_effect = [
+        [{"label": "test_backup", "state": "RUNNING"}],
+        [{"label": "test_backup", "state": "FAILED"}],
+    ]
+
+    log_backup = mocker.patch("starrocks_br.history.log_backup")
+    complete_slot = mocker.patch("starrocks_br.concurrency.complete_job_slot")
+
+    backup_command = "BACKUP SNAPSHOT test_backup TO repo"
+
+    result = executor.execute_backup(
+        db,
+        backup_command,
+        max_polls=3,
+        poll_interval=0.01,
+        repository="repo",
+        backup_type="incremental",
+        scope="backup",
+    )
+
+    assert result["success"] is False
+    assert log_backup.call_count == 1
+    entry = log_backup.call_args[0][1]
+    assert entry["label"] == "test_backup"
+    assert entry["status"] == "FAILED"
+    assert entry["repository"] == "repo"
+    assert entry["backup_type"] == "incremental"
+
+    complete_slot.assert_called_once()
+    _, kwargs = complete_slot.call_args
+    assert kwargs.get("final_state") == "FAILED"
