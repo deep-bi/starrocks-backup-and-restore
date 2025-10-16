@@ -60,7 +60,7 @@ def test_should_format_date_correctly_in_query(mocker):
     
     # Check the second query (the partitions query)
     partitions_query = db.query.call_args_list[1][0][0]
-    assert "information_schema.partitions" in partitions_query
+    assert "information_schema.partitions_meta" in partitions_query
     assert "WHERE" in partitions_query
 
 

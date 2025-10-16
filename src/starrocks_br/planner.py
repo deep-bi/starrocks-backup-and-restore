@@ -35,7 +35,7 @@ def find_recent_partitions(db, days: int) -> List[Dict[str, str]]:
     Returns list of dictionaries with keys: database, table, partition_name.
     """
     threshold_date = datetime.now() - timedelta(days=days)
-    threshold_str = threshold_date.strftime("%Y-%m-%d")
+    threshold_str = threshold_date.strftime("%Y-%m-%d %H:%M:%S")
     
     eligible_tables = find_incremental_eligible_tables(db)
     
@@ -44,17 +44,17 @@ def find_recent_partitions(db, days: int) -> List[Dict[str, str]]:
     
     table_conditions = []
     for table in eligible_tables:
-        table_conditions.append(f"(table_schema = '{table['database']}' AND table_name = '{table['table']}')")
+        table_conditions.append(f"(DB_NAME = '{table['database']}' AND TABLE_NAME = '{table['table']}')")
     
     table_filter = " AND (" + " OR ".join(table_conditions) + ")"
     
     query = f"""
-    SELECT table_schema, table_name, partition_name, update_time
-    FROM information_schema.partitions 
-    WHERE partition_name IS NOT NULL 
-    AND update_time >= '{threshold_str}'
+    SELECT DB_NAME, TABLE_NAME, PARTITION_NAME, VISIBLE_VERSION_TIME
+    FROM information_schema.partitions_meta 
+    WHERE PARTITION_NAME IS NOT NULL 
+    AND VISIBLE_VERSION_TIME >= '{threshold_str}'
     {table_filter}
-    ORDER BY update_time DESC
+    ORDER BY VISIBLE_VERSION_TIME DESC
     """
     
     rows = db.query(query)
