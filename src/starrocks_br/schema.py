@@ -12,6 +12,33 @@ def initialize_ops_schema(db) -> None:
     db.execute(get_run_status_schema())
 
 
+def ensure_ops_schema(db) -> bool:
+    """Ensure ops schema exists, creating it if necessary.
+    
+    Returns True if schema was created, False if it already existed.
+    This is called automatically before backup/restore operations.
+    """
+    try:
+        result = db.query("SHOW DATABASES LIKE 'ops'")
+        
+        if not result:
+            initialize_ops_schema(db)
+            return True
+        
+        db.execute("USE ops")
+        tables_result = db.query("SHOW TABLES")
+        
+        if not tables_result or len(tables_result) < 4:
+            initialize_ops_schema(db)
+            return True
+        
+        return False
+        
+    except Exception:
+        initialize_ops_schema(db)
+        return True
+
+
 def get_table_inventory_schema() -> str:
     """Get CREATE TABLE statement for table_inventory."""
     return """

@@ -10,12 +10,70 @@ from . import planner
 from . import labels
 from . import executor
 from . import restore
+from . import schema
 
 
 @click.group()
 def cli():
     """StarRocks Backup & Restore automation tool."""
     pass
+
+
+@cli.command('init')
+@click.option('--config', required=True, help='Path to config YAML file')
+def init(config):
+    """Initialize ops database and control tables.
+    
+    Creates the ops database with required tables:
+    - ops.table_inventory: Table backup eligibility configuration
+    - ops.backup_history: Backup operation history
+    - ops.restore_history: Restore operation history
+    - ops.run_status: Job concurrency control
+    
+    Run this once before using backup/restore commands.
+    """
+    try:
+        cfg = config_module.load_config(config)
+        config_module.validate_config(cfg)
+        
+        database = db.StarRocksDB(
+            host=cfg['host'],
+            port=cfg['port'],
+            user=cfg['user'],
+            password=cfg.get('password', ''),
+            database=cfg['database']
+        )
+        
+        with database:
+            click.echo("Initializing ops schema...")
+            schema.initialize_ops_schema(database)
+            click.echo("✓ ops database created")
+            click.echo("✓ ops.table_inventory created")
+            click.echo("✓ ops.backup_history created")
+            click.echo("✓ ops.restore_history created")
+            click.echo("✓ ops.run_status created")
+            click.echo("")
+            click.echo("Schema initialized successfully!")
+            click.echo("")
+            click.echo("Next steps:")
+            click.echo("1. Insert your table inventory records:")
+            click.echo("   INSERT INTO ops.table_inventory")
+            click.echo("   (database_name, table_name, table_type, backup_eligible,")
+            click.echo("    incremental_eligible, weekly_eligible, monthly_eligible)")
+            click.echo("   VALUES ('your_db', 'your_table', 'fact', true, true, false, true);")
+            click.echo("")
+            click.echo("2. Run your first backup:")
+            click.echo("   starrocks-br backup incremental --config config.yaml --days 7")
+            
+    except FileNotFoundError as e:
+        click.echo(f"Error: Config file not found: {e}", err=True)
+        sys.exit(1)
+    except ValueError as e:
+        click.echo(f"Error: Configuration error: {e}", err=True)
+        sys.exit(1)
+    except Exception as e:
+        click.echo(f"Error: Failed to initialize schema: {e}", err=True)
+        sys.exit(1)
 
 
 @cli.group()
@@ -46,6 +104,11 @@ def backup_incremental(config, days):
         )
         
         with database:
+            was_created = schema.ensure_ops_schema(database)
+            if was_created:
+                click.echo("⚠ ops schema was auto-created (run 'starrocks-br init' next time)")
+                click.echo("⚠ Remember to populate ops.table_inventory with your tables!")
+            
             healthy, message = health.check_cluster_health(database)
             if not healthy:
                 click.echo(f"Error: Cluster health check failed: {message}", err=True)
@@ -138,6 +201,11 @@ def backup_weekly(config):
         )
         
         with database:
+            was_created = schema.ensure_ops_schema(database)
+            if was_created:
+                click.echo("⚠ ops schema was auto-created (run 'starrocks-br init' next time)")
+                click.echo("⚠ Remember to populate ops.table_inventory with your tables!")
+            
             healthy, message = health.check_cluster_health(database)
             if not healthy:
                 click.echo(f"Error: Cluster health check failed: {message}", err=True)
@@ -230,6 +298,11 @@ def backup_monthly(config):
         )
         
         with database:
+            was_created = schema.ensure_ops_schema(database)
+            if was_created:
+                click.echo("⚠ ops schema was auto-created (run 'starrocks-br init' next time)")
+                click.echo("⚠ Remember to populate ops.table_inventory with your tables!")
+            
             healthy, message = health.check_cluster_health(database)
             if not healthy:
                 click.echo(f"Error: Cluster health check failed: {message}", err=True)
@@ -322,6 +395,10 @@ def restore_partition(config, backup_label, table, partition):
         )
         
         with database:
+            was_created = schema.ensure_ops_schema(database)
+            if was_created:
+                click.echo("⚠ ops schema was auto-created (run 'starrocks-br init' next time)")
+            
             click.echo(f"Restoring partition {partition} of {table} from backup {backup_label}...")
             
             restore_command = restore.build_partition_restore_command(
