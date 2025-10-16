@@ -15,11 +15,11 @@ This checklist is organized into key areas, from initial setup and strategy to a
 * ` ` Create a dedicated IAM role with the least-privilege policy for bucket access.
 * ` ` Enable S3 bucket versioning and consider using Object Lock for critical backups.
 * ` ` Configure networking to use private S3 endpoints if applicable.
-* ` ` **Automation Control Repo** (IF NOT EXISTS):
-* ` ` Create the `ops` database or schema to hold control tables.
-* ` ` Create and populate the `table_inventory` to classify tables as partitioned fact tables, dimension tables, etc., and mark their eligibility for different backups.
-* ` ` Create the `backup_history` and `restore_history` tables to log every job attempt, success, and failure.
-* ` ` Create the `ops.run_status` table to manage job concurrency and prevent overlapping backups.
+* `X` **Automation Control Repo** (IF NOT EXISTS):
+* `X` Create the `ops` database or schema to hold control tables.
+* `X` Create and populate the `table_inventory` to classify tables as partitioned fact tables, dimension tables, etc., and mark their eligibility for different backups.
+* `X` Create the `backup_history` and `restore_history` tables to log every job attempt, success, and failure.
+* `X` Create the `ops.run_status` table to manage job concurrency and prevent overlapping backups.
 
 ---
 
