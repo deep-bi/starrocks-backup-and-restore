@@ -311,3 +311,220 @@ def test_should_handle_job_slot_conflict(mocker):
     finally:
         os.unlink(config_path)
 
+
+def test_cli_main_group_command():
+    """Test the main CLI group command."""
+    runner = CliRunner()
+    result = runner.invoke(cli.cli, [])
+    assert result.exit_code == 2  # Click expects a subcommand
+    assert "Usage:" in result.output
+
+
+def test_backup_group_command():
+    """Test the backup group command."""
+    runner = CliRunner()
+    result = runner.invoke(cli.backup, [])
+    assert result.exit_code == 2  # Click expects a subcommand
+    assert "Usage:" in result.output
+
+
+def test_incremental_backup_with_no_partitions_warning(mocker):
+    """Test incremental backup when no partitions are found"""
+    runner = CliRunner()
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        f.write("""
+        host: "127.0.0.1"
+        port: 9030
+        user: "root"
+        password: ""
+        database: "test_db"
+        repository: "test_repo"
+        """)
+        f.flush()
+        config_path = f.name
+    
+    try:
+        mock_db = mocker.Mock()
+        mock_db.__enter__ = mocker.Mock(return_value=mock_db)
+        mock_db.__exit__ = mocker.Mock(return_value=False)
+        mocker.patch('starrocks_br.db.StarRocksDB', return_value=mock_db)
+        mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Healthy"))
+        mocker.patch('starrocks_br.repository.ensure_repository')
+        mocker.patch('starrocks_br.concurrency.reserve_job_slot')
+        mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_inc')
+        
+        mocker.patch('starrocks_br.planner.find_recent_partitions', return_value=[])
+        
+        result = runner.invoke(cli.backup_incremental, ['--config', config_path, '--days', '7'])
+        
+        assert result.exit_code == 1
+        assert 'Warning: No partitions found to backup' in result.output
+        
+    finally:
+        os.unlink(config_path)
+
+
+def test_weekly_backup_with_no_tables_warning(mocker):
+    """Test weekly backup when no tables are found"""
+    runner = CliRunner()
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        f.write("""
+        host: "127.0.0.1"
+        port: 9030
+        user: "root"
+        password: ""
+        database: "test_db"
+        repository: "test_repo"
+        """)
+        f.flush()
+        config_path = f.name
+    
+    try:
+        mock_db = mocker.Mock()
+        mock_db.__enter__ = mocker.Mock(return_value=mock_db)
+        mock_db.__exit__ = mocker.Mock(return_value=False)
+        mocker.patch('starrocks_br.db.StarRocksDB', return_value=mock_db)
+        mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Healthy"))
+        mocker.patch('starrocks_br.repository.ensure_repository')
+        mocker.patch('starrocks_br.concurrency.reserve_job_slot')
+        mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_weekly')
+        
+        mocker.patch('starrocks_br.planner.find_weekly_eligible_tables', return_value=[])
+        
+        result = runner.invoke(cli.backup_weekly, ['--config', config_path])
+        
+        assert result.exit_code == 1
+        assert 'Warning: No tables found to backup' in result.output
+        
+    finally:
+        os.unlink(config_path)
+
+
+def test_restore_partition_invalid_table_format_error():
+    """Test restore partition with invalid table format"""
+    runner = CliRunner()
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        f.write("""
+        host: "127.0.0.1"
+        port: 9030
+        user: "root"
+        password: ""
+        database: "test_db"
+        repository: "test_repo"
+        """)
+        f.flush()
+        config_path = f.name
+    
+    try:
+        result = runner.invoke(cli.restore_partition, [
+            '--config', config_path,
+            '--backup-label', 'test_backup',
+            '--table', 'invalid_table_format',  # Missing database prefix
+            '--partition', 'p20251016'
+        ])
+        
+        assert result.exit_code == 1
+        assert 'Table must be in format database.table' in result.output
+        
+    finally:
+        os.unlink(config_path)
+
+
+def test_cli_exception_handling_file_not_found():
+    """Test CLI exception handling for FileNotFoundError"""
+    runner = CliRunner()
+    
+    result = runner.invoke(cli.backup_incremental, [
+        '--config', '/nonexistent/file.yaml',
+        '--days', '7'
+    ])
+    
+    assert result.exit_code == 1
+    assert 'Error: Config file not found' in result.output
+
+
+def test_cli_exception_handling_value_error():
+    """Test CLI exception handling for ValueError"""
+    runner = CliRunner()
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        f.write("invalid: yaml: content")
+        f.flush()
+        config_path = f.name
+    
+    try:
+        result = runner.invoke(cli.backup_incremental, [
+            '--config', config_path,
+            '--days', '7'
+        ])
+        
+        assert result.exit_code == 1
+        assert 'Error: Unexpected error' in result.output
+        
+    finally:
+        os.unlink(config_path)
+
+
+def test_cli_exception_handling_runtime_error(mocker):
+    """Test CLI exception handling for RuntimeError"""
+    runner = CliRunner()
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        f.write("""
+        host: "127.0.0.1"
+        port: 9030
+        user: "root"
+        password: ""
+        database: "test_db"
+        repository: "test_repo"
+        """)
+        f.flush()
+        config_path = f.name
+    
+    try:
+        mock_db = mocker.Mock()
+        mock_db.__enter__ = mocker.Mock(return_value=mock_db)
+        mock_db.__exit__ = mocker.Mock(return_value=False)
+        mocker.patch('starrocks_br.db.StarRocksDB', return_value=mock_db)
+        mocker.patch('starrocks_br.health.check_cluster_health', 
+                    side_effect=RuntimeError("Health check failed"))
+        
+        result = runner.invoke(cli.backup_incremental, ['--config', config_path, '--days', '7'])
+        
+        assert result.exit_code == 1
+        assert 'Error: Health check failed' in result.output
+        
+    finally:
+        os.unlink(config_path)
+
+
+def test_cli_exception_handling_generic_exception(mocker):
+    """Test CLI exception handling for generic Exception"""
+    runner = CliRunner()
+    
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.yaml', delete=False) as f:
+        f.write("""
+        host: "127.0.0.1"
+        port: 9030
+        user: "root"
+        password: ""
+        database: "test_db"
+        repository: "test_repo"
+        """)
+        f.flush()
+        config_path = f.name
+    
+    try:
+        mocker.patch('starrocks_br.db.StarRocksDB', side_effect=Exception("Unexpected error"))
+        
+        result = runner.invoke(cli.backup_incremental, ['--config', config_path, '--days', '7'])
+        
+        assert result.exit_code == 1
+        assert 'Error: Unexpected error' in result.output
+        
+    finally:
+        os.unlink(config_path)
+
