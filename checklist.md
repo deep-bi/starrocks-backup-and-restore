@@ -43,8 +43,12 @@ This checklist is organized into key areas, from initial setup and strategy to a
 * ` ` **Failure Handling**: The script must gracefully handle common errors:
 * ` ` Immediately fail and alert on repository connectivity issues.
 * ` ` Implement an exponential backoff retry mechanism for active job conflicts.
-* ` ` Automatically add a `_r#` suffix to the label if a label collision occurs.
+* `X` Automatically add a `_r#` suffix to the label if a label collision occurs.
 * ` ` Halt the job without creating a partial backup if storage is insufficient.
+* ` ` **Restore Operations**:
+* `X` Generate RESTORE SNAPSHOT commands for partition/table/database recovery.
+* `X` Poll SHOW RESTORE until completion.
+* `X` Log all restore operations to ops.restore_history.
 
 ---
 
