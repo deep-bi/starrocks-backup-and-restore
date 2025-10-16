@@ -24,14 +24,19 @@ user: "root"
 password: ""
 database: "your_database"
 repository: "your_repo_name"
+```
 
-# Optional S3 settings (if using S3 repository)
-endpoint: "https://s3.amazonaws.com"
-bucket: "your-backup-bucket"
-prefix: "/backups"
-access_key: "your-access-key"
-secret_key: "your-secret-key"
-force_https: true
+**Note:** The repository must be created in StarRocks using the `CREATE REPOSITORY` command before running backups. For example:
+
+```sql
+CREATE REPOSITORY `your_repo_name`
+WITH S3
+ON LOCATION "s3://your-backup-bucket/backups/"
+PROPERTIES (
+    "aws.s3.access_key" = "your-access-key",
+    "aws.s3.secret_key" = "your-secret-key",
+    "aws.s3.endpoint" = "https://s3.amazonaws.com"
+);
 ```
 
 ## Commands
@@ -50,11 +55,12 @@ starrocks-br backup incremental --config config.yaml --days 7
 1. Load config → verify cluster health
 2. Ensure repository exists
 3. Reserve job slot (prevent concurrent backups)
-4. Find recent partitions from `information_schema.partitions`
-5. Generate unique label (format: `{db}_{yyyymmdd}_inc`)
-6. Build and execute `BACKUP SNAPSHOT ... PARTITION (...)` command
-7. Poll `SHOW BACKUP` until completion
-8. Log to `ops.backup_history` and release job slot
+4. Query `ops.table_inventory` for tables where `incremental_eligible = TRUE`
+5. Find recent partitions from `information_schema.partitions` (filtered by eligible tables)
+6. Generate unique label (format: `{db}_{yyyymmdd}_inc`)
+7. Build and execute `BACKUP SNAPSHOT ... PARTITION (...)` command
+8. Poll `SHOW BACKUP` until completion
+9. Log to `ops.backup_history` and release job slot
 
 #### 2. Weekly Full Backup
 
@@ -68,7 +74,7 @@ starrocks-br backup weekly --config config.yaml
 1. Load config → verify cluster health
 2. Ensure repository exists
 3. Reserve job slot
-4. Query `ops.table_inventory` for weekly-eligible tables
+4. Query `ops.table_inventory` for tables where `weekly_eligible = TRUE`
 5. Generate unique label (format: `{db}_{yyyymmdd}_weekly`)
 6. Build and execute `BACKUP SNAPSHOT ... ON (TABLE ...)` command
 7. Poll until completion and log results
@@ -189,7 +195,7 @@ WHERE state = 'ACTIVE';
 
 ## Testing
 
-The project includes comprehensive tests (81 tests, 83% coverage):
+The project includes comprehensive tests (134 tests, 90% coverage):
 
 ```bash
 # Run all tests
@@ -204,14 +210,14 @@ pytest tests/test_cli.py -v
 
 ## Project Status
 
-✅ **Completed (83% coverage):**
+✅ **Completed:**
 - Config loader & validation
 - Database connection wrapper
 - StarRocks repository management
 - Cluster health checks
 - Job slot reservation (concurrency control)
 - Label generation with collision handling
-- Incremental/weekly/monthly backup planners
+- Incremental/weekly/monthly backup planners with table eligibility filtering
 - Schema initialization (ops tables)
 - Backup & restore history logging
 - Backup executor with polling
