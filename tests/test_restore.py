@@ -1,4 +1,4 @@
-from starrocks_br import restore_helpers as restore
+from starrocks_br import restore
 from starrocks_br import history
 
 

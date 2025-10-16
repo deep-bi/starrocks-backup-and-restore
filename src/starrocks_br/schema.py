@@ -1,6 +1,3 @@
-from typing import Dict
-
-
 def initialize_ops_schema(db) -> None:
     """Initialize the ops database and all required control tables."""
     db.execute("CREATE DATABASE IF NOT EXISTS ops")
