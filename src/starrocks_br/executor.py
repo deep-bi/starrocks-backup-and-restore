@@ -40,8 +40,11 @@ def poll_backup_status(db, label: str, database: str, max_polls: int = MAX_POLLS
     """
     query = f"SHOW BACKUP FROM {database}"
     first_poll = True
+    last_state = None
+    poll_count = 0
     
     for _ in range(max_polls):
+        poll_count += 1
         try:
             rows = db.query(query)
             
@@ -67,6 +70,10 @@ def poll_backup_status(db, label: str, database: str, max_polls: int = MAX_POLLS
                     return {"state": "LOST", "label": label}
             
             first_poll = False
+            
+            if state != last_state or poll_count % 10 == 0:
+                print(f"⏳ Backup status: {state} (poll {poll_count}/{max_polls})")
+                last_state = state
             
             if state in ["FINISHED", "CANCELLED"]:
                 return {"state": state, "label": label}

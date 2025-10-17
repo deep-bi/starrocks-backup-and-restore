@@ -155,7 +155,12 @@ def backup_incremental(config, days):
                 click.echo(f"✓ Backup completed successfully: {result['final_status']['state']}")
                 sys.exit(0)
             else:
-                click.echo(f"Error: Backup failed: {result['error_message']}", err=True)
+                state = result.get('final_status', {}).get('state', 'UNKNOWN')
+                if state == "LOST":
+                    click.echo("❌ CRITICAL: Backup tracking lost!", err=True)
+                    click.echo("⚠️  Another backup operation started during ours.", err=True)
+                    click.echo("💡 Enable ops.run_status concurrency checks to prevent this.", err=True)
+                click.echo(f"Error: {result['error_message']}", err=True)
                 sys.exit(1)
                 
     except FileNotFoundError as e:
@@ -244,7 +249,12 @@ def backup_weekly(config):
                 click.echo(f"✓ Backup completed successfully: {result['final_status']['state']}")
                 sys.exit(0)
             else:
-                click.echo(f"Error: Backup failed: {result['error_message']}", err=True)
+                state = result.get('final_status', {}).get('state', 'UNKNOWN')
+                if state == "LOST":
+                    click.echo("❌ CRITICAL: Backup tracking lost!", err=True)
+                    click.echo("⚠️  Another backup operation started during ours.", err=True)
+                    click.echo("💡 Enable ops.run_status concurrency checks to prevent this.", err=True)
+                click.echo(f"Error: {result['error_message']}", err=True)
                 sys.exit(1)
                 
     except FileNotFoundError as e:
@@ -325,7 +335,12 @@ def backup_monthly(config):
                 click.echo(f"✓ Backup completed successfully: {result['final_status']['state']}")
                 sys.exit(0)
             else:
-                click.echo(f"Error: Backup failed: {result['error_message']}", err=True)
+                state = result.get('final_status', {}).get('state', 'UNKNOWN')
+                if state == "LOST":
+                    click.echo("❌ CRITICAL: Backup tracking lost!", err=True)
+                    click.echo("⚠️  Another backup operation started during ours.", err=True)
+                    click.echo("💡 Enable ops.run_status concurrency checks to prevent this.", err=True)
+                click.echo(f"Error: {result['error_message']}", err=True)
                 sys.exit(1)
                 
     except FileNotFoundError as e:
