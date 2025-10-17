@@ -328,16 +328,27 @@ def test_should_execute_backup_with_job_slot_completion_exception():
     assert complete_slot.call_count == 1
 
 
-def test_should_extract_label_from_command_with_complex_multiline():
-    """Test label extraction from complex multiline commands."""
-    complex_command = """
-    BACKUP DATABASE sales_db
-    SNAPSHOT sales_db_20251015_monthly
+def test_should_extract_label_from_both_backup_syntaxes():
+    """Test label extraction from both new and legacy backup command syntaxes."""
+    new_syntax_simple = "BACKUP DATABASE sales_db SNAPSHOT my_backup_label TO repo"
+    assert executor._extract_label_from_command(new_syntax_simple) == "my_backup_label"
+    
+    new_syntax_multiline = """BACKUP DATABASE sales_db SNAPSHOT sales_db_20251015_inc
     TO my_repo
-    ON (TABLE sales_db.fact_sales, TABLE sales_db.dim_customers)
-    """
-    label = executor._extract_label_from_command(complex_command)
-    assert label == "unknown_backup"
+    ON (TABLE fact_sales PARTITION (p20251015, p20251014))"""
+    assert executor._extract_label_from_command(new_syntax_multiline) == "sales_db_20251015_inc"
+    
+    new_syntax_full = """BACKUP DATABASE sales_db SNAPSHOT sales_db_20251015_monthly
+    TO my_repo"""
+    assert executor._extract_label_from_command(new_syntax_full) == "sales_db_20251015_monthly"
+    
+    legacy_syntax_simple = "BACKUP SNAPSHOT my_backup_20251015 TO repo"
+    assert executor._extract_label_from_command(legacy_syntax_simple) == "my_backup_20251015"
+    
+    legacy_syntax_multiline = """BACKUP SNAPSHOT legacy_backup_20251015
+    TO my_repo
+    ON (TABLE sales_db.fact_sales)"""
+    assert executor._extract_label_from_command(legacy_syntax_multiline) == "legacy_backup_20251015"
 
 
 def test_should_extract_label_from_command_with_extra_spaces():
@@ -356,9 +367,9 @@ def test_should_extract_label_from_command_with_tabs():
 
 def test_should_extract_label_from_command_case_insensitive():
     """Test label extraction from commands with different case."""
-    command_mixed_case = "backup snapshot MY_BACKUP_20251015 to repo"
+    command_mixed_case = "backup database test_db snapshot MY_BACKUP_20251015 to repo"
     label = executor._extract_label_from_command(command_mixed_case)
-    assert label == "unknown_backup"
+    assert label == "unknown_backup"  # lowercase commands not supported by parser
 
 
 def test_should_handle_backup_execution_with_zero_poll_interval():

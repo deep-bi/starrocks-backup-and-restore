@@ -115,19 +115,23 @@ def _extract_label_from_command(backup_command: str) -> str:
     """Extract the snapshot label from a backup command.
     
     This is a simple parser for StarRocks backup commands.
+    Handles both formats:
+    - BACKUP DATABASE db SNAPSHOT label TO repo
+    - BACKUP SNAPSHOT label TO repo (legacy)
     """
     lines = backup_command.strip().split('\n')
     
     for line in lines:
         line = line.strip()
-        if line.startswith('BACKUP SNAPSHOT'):
-            parts = line.split()
-            if len(parts) >= 3:
-                return parts[2]
-        elif line.startswith('BACKUP DATABASE'):
+        if line.startswith('BACKUP DATABASE'):
             parts = line.split()
             for i, part in enumerate(parts):
                 if part == 'SNAPSHOT' and i + 1 < len(parts):
                     return parts[i + 1]
+        elif line.startswith('BACKUP SNAPSHOT'):
+            # Legacy syntax
+            parts = line.split()
+            if len(parts) >= 3:
+                return parts[2]
     
     return "unknown_backup"

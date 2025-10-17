@@ -33,7 +33,7 @@ def test_should_run_incremental_backup_with_valid_config(mocker):
             {"database": "test_db", "table": "fact_table", "partition_name": "p20251016"}
         ])
         mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_inc')
-        mocker.patch('starrocks_br.planner.build_incremental_backup_command', return_value='BACKUP SNAPSHOT test_db_20251016_inc TO test_repo')
+        mocker.patch('starrocks_br.planner.build_incremental_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_inc TO test_repo')
         mocker.patch('starrocks_br.executor.execute_backup', return_value={
             'success': True,
             'final_status': {'state': 'FINISHED'},
@@ -118,7 +118,7 @@ def test_should_run_weekly_backup_with_valid_config(mocker):
             {"database": "test_db", "table": "dim_table"}
         ])
         mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_weekly')
-        mocker.patch('starrocks_br.planner.build_weekly_backup_command', return_value='BACKUP SNAPSHOT test_db_20251016_weekly TO test_repo')
+        mocker.patch('starrocks_br.planner.build_weekly_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_weekly TO test_repo')
         mocker.patch('starrocks_br.executor.execute_backup', return_value={
             'success': True,
             'final_status': {'state': 'FINISHED'},
@@ -269,7 +269,7 @@ def test_should_handle_backup_failure_gracefully(mocker):
             {"database": "test_db", "table": "fact_table", "partition_name": "p20251016"}
         ])
         mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_inc')
-        mocker.patch('starrocks_br.planner.build_incremental_backup_command', return_value='BACKUP SNAPSHOT test_db_20251016_inc TO test_repo')
+        mocker.patch('starrocks_br.planner.build_incremental_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_inc TO test_repo')
         mocker.patch('starrocks_br.executor.execute_backup', return_value={
             'success': False,
             'final_status': {'state': 'FAILED'},

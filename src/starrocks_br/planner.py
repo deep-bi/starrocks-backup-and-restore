@@ -69,17 +69,31 @@ def find_recent_partitions(db, days: int) -> List[Dict[str, str]]:
     ]
 
 
-def build_incremental_backup_command(partitions: List[Dict[str, str]], repository: str, label: str) -> str:
-    """Build BACKUP command for incremental backup of specific partitions."""
+def build_incremental_backup_command(partitions: List[Dict[str, str]], repository: str, label: str, database: str) -> str:
+    """Build BACKUP command for incremental backup of specific partitions.
+    
+    Args:
+        partitions: List of partitions to backup
+        repository: Repository name
+        label: Backup label
+        database: Database name (StarRocks requires BACKUP to be database-specific)
+    
+    Note: Filters partitions to only include those from the specified database.
+    """
     if not partitions:
         return ""
     
+    db_partitions = [p for p in partitions if p['database'] == database]
+    
+    if not db_partitions:
+        return ""
+    
     table_partitions = {}
-    for partition in partitions:
-        full_table = f"{partition['database']}.{partition['table']}"
-        if full_table not in table_partitions:
-            table_partitions[full_table] = []
-        table_partitions[full_table].append(partition['partition_name'])
+    for partition in db_partitions:
+        table_name = partition['table']
+        if table_name not in table_partitions:
+            table_partitions[table_name] = []
+        table_partitions[table_name].append(partition['partition_name'])
     
     on_clauses = []
     for table, parts in table_partitions.items():
@@ -88,8 +102,7 @@ def build_incremental_backup_command(partitions: List[Dict[str, str]], repositor
     
     on_clause = ",\n    ".join(on_clauses)
     
-    command = f"""
-    BACKUP SNAPSHOT {label}
+    command = f"""BACKUP DATABASE {database} SNAPSHOT {label}
     TO {repository}
     ON ({on_clause})"""
     
@@ -98,8 +111,7 @@ def build_incremental_backup_command(partitions: List[Dict[str, str]], repositor
 
 def build_monthly_backup_command(database: str, repository: str, label: str) -> str:
     """Build BACKUP command for monthly full database backup."""
-    return f"""
-    BACKUP DATABASE {database} SNAPSHOT {label}
+    return f"""BACKUP DATABASE {database} SNAPSHOT {label}
     TO {repository}"""
 
 
@@ -126,20 +138,33 @@ def find_weekly_eligible_tables(db) -> List[Dict[str, str]]:
     ]
 
 
-def build_weekly_backup_command(tables: List[Dict[str, str]], repository: str, label: str) -> str:
-    """Build BACKUP command for weekly backup of specific tables."""
+def build_weekly_backup_command(tables: List[Dict[str, str]], repository: str, label: str, database: str) -> str:
+    """Build BACKUP command for weekly backup of specific tables.
+    
+    Args:
+        tables: List of tables to backup
+        repository: Repository name
+        label: Backup label
+        database: Database name (StarRocks requires BACKUP to be database-specific)
+    
+    Note: Filters tables to only include those from the specified database.
+    """
     if not tables:
         return ""
     
+    db_tables = [t for t in tables if t['database'] == database]
+    
+    if not db_tables:
+        return ""
+    
     on_clauses = []
-    for table in tables:
-        full_table = f"{table['database']}.{table['table']}"
-        on_clauses.append(f"TABLE {full_table}")
+    for table in db_tables:
+        table_name = table['table']
+        on_clauses.append(f"TABLE {table_name}")
     
     on_clause = ",\n        ".join(on_clauses)
     
-    command = f"""
-    BACKUP SNAPSHOT {label}
+    command = f"""BACKUP DATABASE {database} SNAPSHOT {label}
     TO {repository}
     ON ({on_clause})"""
     

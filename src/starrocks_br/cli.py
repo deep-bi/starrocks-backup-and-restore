@@ -138,7 +138,7 @@ def backup_incremental(config, days):
             click.echo(f"✓ Found {len(partitions)} partition(s) to backup")
             
             backup_command = planner.build_incremental_backup_command(
-                partitions, cfg['repository'], label
+                partitions, cfg['repository'], label, cfg['database']
             )
             
             click.echo("Starting incremental backup...")
@@ -226,7 +226,7 @@ def backup_weekly(config):
             click.echo(f"✓ Found {len(tables)} table(s) to backup")
             
             backup_command = planner.build_weekly_backup_command(
-                tables, cfg['repository'], label
+                tables, cfg['repository'], label, cfg['database']
             )
             
             click.echo("Starting weekly backup...")
