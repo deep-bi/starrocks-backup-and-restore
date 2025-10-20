@@ -1,5 +1,37 @@
-from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
+
+
+def find_latest_full_backup(db, database: str) -> Optional[Dict[str, str]]:
+    """Find the latest successful full backup (weekly or monthly) for a database.
+    
+    Args:
+        db: Database connection
+        database: Database name to search for
+        
+    Returns:
+        Dictionary with keys: label, backup_type, finished_at, or None if no full backup found
+    """
+    query = f"""
+    SELECT label, backup_type, finished_at
+    FROM ops.backup_history
+    WHERE backup_type IN ('weekly', 'monthly')
+    AND status = 'FINISHED'
+    AND label LIKE '{database}_%'
+    ORDER BY finished_at DESC
+    LIMIT 1
+    """
+    
+    rows = db.query(query)
+    
+    if not rows:
+        return None
+    
+    row = rows[0]
+    return {
+        "label": row[0],
+        "backup_type": row[1],
+        "finished_at": row[2]
+    }
 
 
 def find_incremental_eligible_tables(db) -> List[Dict[str, str]]:
@@ -25,25 +57,51 @@ def find_incremental_eligible_tables(db) -> List[Dict[str, str]]:
     ]
 
 
-def find_recent_partitions(db, days: int) -> List[Dict[str, str]]:
-    """Find partitions updated in the last N days from incremental eligible tables only.
+def find_recent_partitions(db, database: str, baseline_backup_label: Optional[str] = None) -> List[Dict[str, str]]:
+    """Find partitions updated since the latest full backup from incremental eligible tables only.
     
     Args:
         db: Database connection
-        days: Number of days to look back
+        database: Database name
+        baseline_backup_label: Optional specific backup label to use as baseline.
+                             If None, uses the latest successful full backup.
     
     Returns list of dictionaries with keys: database, table, partition_name.
     """
-    threshold_date = datetime.now() - timedelta(days=days)
-    threshold_str = threshold_date.strftime("%Y-%m-%d %H:%M:%S")
+    if baseline_backup_label:
+        baseline_query = f"""
+        SELECT finished_at
+        FROM ops.backup_history
+        WHERE label = '{baseline_backup_label}'
+        AND status = 'FINISHED'
+        """
+        baseline_rows = db.query(baseline_query)
+        if not baseline_rows:
+            raise ValueError(f"Baseline backup '{baseline_backup_label}' not found or not successful")
+        baseline_time = baseline_rows[0][0]
+    else:
+        latest_backup = find_latest_full_backup(db, database)
+        if not latest_backup:
+            raise ValueError(f"No successful full backup found for database '{database}'. Run a weekly or monthly backup first.")
+        baseline_time = latest_backup['finished_at']
+    
+    if isinstance(baseline_time, str):
+        threshold_str = baseline_time
+    else:
+        threshold_str = baseline_time.strftime("%Y-%m-%d %H:%M:%S")
     
     eligible_tables = find_incremental_eligible_tables(db)
     
     if not eligible_tables:
         return []
     
+    db_eligible_tables = [t for t in eligible_tables if t['database'] == database]
+    
+    if not db_eligible_tables:
+        return []
+    
     table_conditions = []
-    for table in eligible_tables:
+    for table in db_eligible_tables:
         table_conditions.append(f"(DB_NAME = '{table['database']}' AND TABLE_NAME = '{table['table']}')")
     
     table_filter = " AND (" + " OR ".join(table_conditions) + ")"
@@ -52,7 +110,7 @@ def find_recent_partitions(db, days: int) -> List[Dict[str, str]]:
     SELECT DB_NAME, TABLE_NAME, PARTITION_NAME, VISIBLE_VERSION_TIME
     FROM information_schema.partitions_meta 
     WHERE PARTITION_NAME IS NOT NULL 
-    AND VISIBLE_VERSION_TIME >= '{threshold_str}'
+    AND VISIBLE_VERSION_TIME > '{threshold_str}'
     {table_filter}
     ORDER BY VISIBLE_VERSION_TIME DESC
     """

@@ -63,7 +63,7 @@ def init(config):
             click.echo("   VALUES ('your_db', 'your_table', 'fact', true, true, false, true);")
             click.echo("")
             click.echo("2. Run your first backup:")
-            click.echo("   starrocks-br backup incremental --config config.yaml --days 7")
+            click.echo("   starrocks-br backup incremental --config config.yaml")
             
     except FileNotFoundError as e:
         click.echo(f"Error: Config file not found: {e}", err=True)
@@ -84,12 +84,15 @@ def backup():
 
 @backup.command('incremental')
 @click.option('--config', required=True, help='Path to config YAML file')
-@click.option('--days', type=int, required=True, help='Number of days to look back for changed partitions')
-def backup_incremental(config, days):
-    """Run incremental backup of recently changed partitions.
+@click.option('--baseline-backup', help='Specific backup label to use as baseline (optional). If not provided, uses the latest successful full backup.')
+def backup_incremental(config, baseline_backup):
+    """Run incremental backup of partitions changed since the latest full backup.
+    
+    By default, uses the latest successful full backup (weekly or monthly) as baseline.
+    Optionally specify a specific backup label to use as baseline.
     
     Flow: load config → check health → ensure repository → reserve job slot →
-    find recent partitions → generate label → build backup command → execute backup
+    find baseline backup → find recent partitions → generate label → build backup command → execute backup
     """
     try:
         cfg = config_module.load_config(config)
@@ -129,7 +132,16 @@ def backup_incremental(config, days):
             
             click.echo(f"✓ Job slot reserved")
             
-            partitions = planner.find_recent_partitions(database, days)
+            if baseline_backup:
+                click.echo(f"✓ Using specified baseline backup: {baseline_backup}")
+            else:
+                latest_backup = planner.find_latest_full_backup(database, cfg['database'])
+                if latest_backup:
+                    click.echo(f"✓ Using latest full backup as baseline: {latest_backup['label']} ({latest_backup['backup_type']})")
+                else:
+                    click.echo("⚠ No full backup found - this will be the first incremental backup")
+            
+            partitions = planner.find_recent_partitions(database, cfg['database'], baseline_backup)
             
             if not partitions:
                 click.echo("Warning: No partitions found to backup", err=True)
