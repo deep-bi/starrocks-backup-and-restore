@@ -6,19 +6,19 @@ def test_should_find_latest_full_backup(mocker):
     """Test finding the latest successful full backup."""
     db = mocker.Mock()
     db.query.return_value = [
-        ("test_db_20251015_weekly", "weekly", "2025-10-15 10:00:00")
+        ("test_db_20251015_full", "full", "2025-10-15 10:00:00")
     ]
     
     result = planner.find_latest_full_backup(db, "test_db")
     
     assert result is not None
-    assert result["label"] == "test_db_20251015_weekly"
-    assert result["backup_type"] == "weekly"
+    assert result["label"] == "test_db_20251015_full"
+    assert result["backup_type"] == "full"
     assert result["finished_at"] == "2025-10-15 10:00:00"
     
     query = db.query.call_args[0][0]
     assert "ops.backup_history" in query
-    assert "backup_type IN ('weekly', 'monthly')" in query
+    assert "backup_type = 'full'" in query
     assert "status = 'FINISHED'" in query
     assert "label LIKE 'test_db_%'" in query
 
@@ -42,14 +42,14 @@ def test_should_find_partitions_with_specific_baseline_backup(mocker):
         [("sales_db", "fact_sales", "p20251015", "2025-10-15")],
     ]
     
-    partitions = planner.find_recent_partitions(db, "sales_db", "sales_db_20251010_monthly")
+    partitions = planner.find_recent_partitions(db, "sales_db", "sales_db_20251010_full", group_name="daily_incremental")
     
     assert len(partitions) == 1
     assert {"database": "sales_db", "table": "fact_sales", "partition_name": "p20251015"} in partitions
     
     baseline_query = db.query.call_args_list[0][0][0]
     assert "ops.backup_history" in baseline_query
-    assert "label = 'sales_db_20251010_monthly'" in baseline_query
+    assert "label = 'sales_db_20251010_full'" in baseline_query
 
 
 def test_should_fail_when_no_full_backup_found(mocker):
@@ -60,7 +60,7 @@ def test_should_fail_when_no_full_backup_found(mocker):
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value=None)
     
     with pytest.raises(ValueError, match="No successful full backup found"):
-        planner.find_recent_partitions(db, "test_db")
+        planner.find_recent_partitions(db, "test_db", group_name="daily_incremental")
 
 
 def test_should_fail_when_invalid_baseline_backup(mocker):
@@ -69,25 +69,25 @@ def test_should_fail_when_invalid_baseline_backup(mocker):
     db.query.return_value = []
     
     with pytest.raises(ValueError, match="Baseline backup 'invalid_backup' not found"):
-        planner.find_recent_partitions(db, "test_db", "invalid_backup")
+        planner.find_recent_partitions(db, "test_db", "invalid_backup", group_name="daily_incremental")
 
 
 def test_should_find_partitions_updated_since_latest_full_backup(mocker):
     """Test finding partitions updated since the latest full backup."""
     db = mocker.Mock()
     db.query.side_effect = [
-        [("sales_db", "fact_sales"), ("orders_db", "fact_orders")],  # incremental eligible tables
+        [("sales_db", "fact_sales"), ("orders_db", "fact_orders")],  # group tables
         [("sales_db", "fact_sales", "p20251015", "2025-10-15"),
          ("sales_db", "fact_sales", "p20251014", "2025-10-14")],  # recent partitions
     ]
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
-        'label': 'sales_db_20251010_weekly',
-        'backup_type': 'weekly',
+        'label': 'sales_db_20251010_full',
+        'backup_type': 'full',
         'finished_at': '2025-10-10 10:00:00'
     })
     
-    partitions = planner.find_recent_partitions(db, "sales_db")
+    partitions = planner.find_recent_partitions(db, "sales_db", group_name="daily_incremental")
     
     assert len(partitions) == 2
     assert {"database": "sales_db", "table": "fact_sales", "partition_name": "p20251015"} in partitions
@@ -101,12 +101,12 @@ def test_should_build_incremental_backup_command():
         {"database": "sales_db", "table": "fact_sales", "partition_name": "p20251014"},
     ]
     repository = "my_repo"
-    label = "sales_db_20251015_inc"
+    label = "sales_db_20251015_incremental"
     database = "sales_db"
     
     command = planner.build_incremental_backup_command(partitions, repository, label, database)
     
-    expected = """BACKUP DATABASE sales_db SNAPSHOT sales_db_20251015_inc
+    expected = """BACKUP DATABASE sales_db SNAPSHOT sales_db_20251015_incremental
     TO my_repo
     ON (TABLE fact_sales PARTITION (p20251015, p20251014))"""
     
@@ -131,17 +131,17 @@ def test_should_format_date_correctly_in_query(mocker):
     """Test that the query uses the correct baseline time format."""
     db = mocker.Mock()
     db.query.side_effect = [
-        [("sales_db", "fact_sales")],  # incremental eligible tables
+        [("sales_db", "fact_sales")],  # group tables
         [],  # no recent partitions
     ]
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
-        'label': 'sales_db_20251010_weekly',
-        'backup_type': 'weekly',
+        'label': 'sales_db_20251010_full',
+        'backup_type': 'full',
         'finished_at': '2025-10-10 10:00:00'
     })
     
-    planner.find_recent_partitions(db, "sales_db")
+    planner.find_recent_partitions(db, "sales_db", group_name="daily_incremental")
     
     # Check the second query (the partitions query)
     partitions_query = db.query.call_args_list[1][0][0]
@@ -150,152 +150,108 @@ def test_should_format_date_correctly_in_query(mocker):
     assert "VISIBLE_VERSION_TIME > '2025-10-10 10:00:00'" in partitions_query
 
 
-def test_should_build_monthly_backup_command():
-    command = planner.build_monthly_backup_command("sales_db", "my_repo", "sales_db_20251015_monthly")
+def test_should_build_full_backup_command_with_wildcard(mocker):
+    """Test building full backup command when group contains wildcard."""
+    db = mocker.Mock()
+    db.query.return_value = [
+        ("sales_db", "*"),  # Wildcard entry
+        ("sales_db", "dim_customers"),  # Specific table
+    ]
     
-    expected = """BACKUP DATABASE sales_db SNAPSHOT sales_db_20251015_monthly
+    command = planner.build_full_backup_command(db, "monthly_full", "my_repo", "sales_db_20251015_full", "sales_db")
+    
+    expected = """BACKUP DATABASE sales_db SNAPSHOT sales_db_20251015_full
     TO my_repo"""
     assert command == expected
 
 
-def test_should_handle_different_database_names():
-    command1 = planner.build_monthly_backup_command("orders_db", "repo", "label1")
-    command2 = planner.build_monthly_backup_command("config_db", "repo", "label2")
-    
-    assert "BACKUP DATABASE orders_db SNAPSHOT label1" in command1
-    assert "BACKUP DATABASE config_db SNAPSHOT label2" in command2
-    assert "TO repo" in command1
-    assert "TO repo" in command2
-
-
-def test_should_handle_different_repositories():
-    command = planner.build_monthly_backup_command("db", "s3_repo", "label")
-    
-    assert "BACKUP DATABASE db SNAPSHOT label" in command
-    assert "TO s3_repo" in command
-
-
-def test_should_handle_special_characters_in_label():
-    command = planner.build_monthly_backup_command("test_db", "repo", "test_db_2025-10-15_monthly")
-    
-    assert "BACKUP DATABASE test_db SNAPSHOT test_db_2025-10-15_monthly" in command
-
-
-def test_should_find_weekly_eligible_tables(mocker):
+def test_should_build_full_backup_command_with_specific_tables(mocker):
+    """Test building full backup command with specific tables."""
     db = mocker.Mock()
     db.query.return_value = [
         ("sales_db", "dim_customers"),
         ("sales_db", "dim_products"),
-        ("orders_db", "dim_regions"),
     ]
     
-    tables = planner.find_weekly_eligible_tables(db)
-    
-    assert len(tables) == 3
-    assert {"database": "sales_db", "table": "dim_customers"} in tables
-    assert {"database": "sales_db", "table": "dim_products"} in tables
-    assert {"database": "orders_db", "table": "dim_regions"} in tables
-    assert db.query.call_count == 1
-
-
-def test_should_build_weekly_backup_command():
-    tables = [
-        {"database": "sales_db", "table": "dim_customers"},
-        {"database": "sales_db", "table": "dim_products"},
-    ]
-    repository = "my_repo"
-    label = "weekly_backup_20251015"
-    database = "sales_db"
-    
-    command = planner.build_weekly_backup_command(tables, repository, label, database)
+    command = planner.build_full_backup_command(db, "weekly_dimensions", "my_repo", "weekly_backup_20251015", "sales_db")
     
     expected = """BACKUP DATABASE sales_db SNAPSHOT weekly_backup_20251015
     TO my_repo
     ON (TABLE dim_customers,
         TABLE dim_products)"""
-    
     assert command == expected
 
 
-def test_should_handle_empty_weekly_tables_list():
-    command = planner.build_weekly_backup_command([], "my_repo", "label", "test_db")
+def test_should_return_empty_command_when_no_tables_in_group(mocker):
+    """Test that build_full_backup_command returns empty when no tables in group."""
+    db = mocker.Mock()
+    db.query.return_value = []
+    
+    command = planner.build_full_backup_command(db, "empty_group", "repo", "label", "test_db")
+    
     assert command == ""
 
 
-def test_should_handle_single_weekly_table():
-    tables = [{"database": "config_db", "table": "ref_countries"}]
-    command = planner.build_weekly_backup_command(tables, "repo", "label", "config_db")
-    
-    assert "TABLE ref_countries" in command
-    assert "BACKUP DATABASE config_db SNAPSHOT label" in command
-    assert "TO repo" in command
-
-
-def test_should_query_correct_weekly_eligible_condition(mocker):
+def test_should_return_empty_command_when_no_tables_for_database(mocker):
+    """Test that build_full_backup_command returns empty when no tables for specific database."""
     db = mocker.Mock()
-    db.query.return_value = []
-    
-    planner.find_weekly_eligible_tables(db)
-    
-    query = db.query.call_args[0][0]
-    assert "ops.table_inventory" in query
-    assert "weekly_eligible = TRUE" in query
-    assert "ORDER BY database_name, table_name" in query
-
-
-def test_should_handle_different_database_names_in_weekly():
-    """Test that weekly backup filters tables by database correctly."""
-    tables = [
-        {"database": "sales_db", "table": "dim_customers"},
-        {"database": "sales_db", "table": "dim_products"},
-        {"database": "orders_db", "table": "dim_regions"},  # Will be filtered out
+    db.query.return_value = [
+        ("other_db", "table1"),
     ]
-    command = planner.build_weekly_backup_command(tables, "repo", "label", "sales_db")
     
-    assert "TABLE dim_customers" in command
-    assert "TABLE dim_products" in command
-    assert "dim_regions" not in command
-    assert "BACKUP DATABASE sales_db" in command
-
-
-def test_should_handle_special_characters_in_weekly_label():
-    tables = [{"database": "test_db", "table": "test_table"}]
-    command = planner.build_weekly_backup_command(tables, "repo", "weekly_2025-10-15_backup", "test_db")
+    command = planner.build_full_backup_command(db, "group", "repo", "label", "test_db")
     
-    assert "BACKUP DATABASE test_db SNAPSHOT weekly_2025-10-15_backup" in command
+    assert command == ""
 
 
-def test_should_find_incremental_eligible_tables(mocker):
-    """Test finding tables eligible for incremental backup from table_inventory."""
+def test_should_find_tables_by_group(mocker):
+    """Test finding tables by inventory group."""
     db = mocker.Mock()
     db.query.return_value = [
         ("sales_db", "fact_sales"),
+        ("sales_db", "dim_customers"),
         ("orders_db", "fact_orders"),
     ]
     
-    tables = planner.find_incremental_eligible_tables(db)
+    tables = planner.find_tables_by_group(db, "daily_incremental")
     
-    assert len(tables) == 2
+    assert len(tables) == 3
     assert {"database": "sales_db", "table": "fact_sales"} in tables
+    assert {"database": "sales_db", "table": "dim_customers"} in tables
     assert {"database": "orders_db", "table": "fact_orders"} in tables
-    assert db.query.call_count == 1
-
-
-def test_should_query_correct_incremental_eligible_condition(mocker):
-    """Test that the query uses the correct incremental_eligible condition."""
-    db = mocker.Mock()
-    db.query.return_value = []
-    
-    planner.find_incremental_eligible_tables(db)
     
     query = db.query.call_args[0][0]
     assert "ops.table_inventory" in query
-    assert "incremental_eligible = TRUE" in query
-    assert "ORDER BY database_name, table_name" in query
+    assert "inventory_group = 'daily_incremental'" in query
 
 
-def test_should_find_recent_partitions_with_incremental_filtering(mocker):
-    """Test finding recent partitions filtered by incremental_eligible tables."""
+def test_should_find_tables_by_group_with_wildcard(mocker):
+    """Test finding tables by group including wildcard entries."""
+    db = mocker.Mock()
+    db.query.return_value = [
+        ("sales_db", "*"),  # Wildcard
+        ("orders_db", "fact_orders"),  # Specific table
+    ]
+    
+    tables = planner.find_tables_by_group(db, "monthly_full")
+    
+    assert len(tables) == 2
+    assert {"database": "sales_db", "table": "*"} in tables
+    assert {"database": "orders_db", "table": "fact_orders"} in tables
+
+
+def test_should_return_empty_list_when_group_not_found(mocker):
+    """Test that find_tables_by_group returns empty list when group not found."""
+    db = mocker.Mock()
+    db.query.return_value = []
+    
+    tables = planner.find_tables_by_group(db, "nonexistent_group")
+    
+    assert len(tables) == 0
+
+
+def test_should_find_recent_partitions_with_group_filtering(mocker):
+    """Test finding recent partitions filtered by inventory group."""
     db = mocker.Mock()
     db.query.side_effect = [
         [("sales_db", "fact_sales"), ("orders_db", "fact_orders")],
@@ -303,61 +259,50 @@ def test_should_find_recent_partitions_with_incremental_filtering(mocker):
     ]
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
-        'label': 'sales_db_20251010_weekly',
-        'backup_type': 'weekly',
+        'label': 'sales_db_20251010_full',
+        'backup_type': 'full',
         'finished_at': '2025-10-10 10:00:00'
     })
     
-    partitions = planner.find_recent_partitions(db, "sales_db")
+    partitions = planner.find_recent_partitions(db, "sales_db", group_name="daily_incremental")
     
     assert len(partitions) == 1
     assert {"database": "sales_db", "table": "fact_sales", "partition_name": "p20251015"} in partitions
     assert db.query.call_count == 2
 
 
-def test_should_handle_no_recent_partitions_with_incremental_filtering(mocker):
-    """Test handling when no recent partitions exist for incremental eligible tables."""
+def test_should_handle_no_recent_partitions_with_group_filtering(mocker):
+    """Test handling when no recent partitions exist for group tables."""
     db = mocker.Mock()
     db.query.side_effect = [
-        [("sales_db", "fact_sales")],
-        [],
+        [("sales_db", "fact_sales")],  # Group tables
+        [],  # No recent partitions
     ]
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
-        'label': 'sales_db_20251010_weekly',
-        'backup_type': 'weekly',
+        'label': 'sales_db_20251010_full',
+        'backup_type': 'full',
         'finished_at': '2025-10-10 10:00:00'
     })
     
-    partitions = planner.find_recent_partitions(db, "sales_db")
+    partitions = planner.find_recent_partitions(db, "sales_db", group_name="daily_incremental")
     
     assert len(partitions) == 0
     assert db.query.call_count == 2
 
 
-def test_should_handle_empty_incremental_eligible_tables(mocker):
-    """Test handling when no tables are incremental eligible."""
+def test_should_return_empty_partitions_when_no_group_tables(mocker):
+    """Test that find_recent_partitions returns empty when no tables in group."""
     db = mocker.Mock()
     db.query.return_value = []
     
-    tables = planner.find_incremental_eligible_tables(db)
-    
-    assert len(tables) == 0
-    assert db.query.call_count == 1
-
-
-def test_should_return_empty_partitions_when_no_incremental_eligible_tables(mocker):
-    """Test that find_recent_partitions returns empty when no tables are incremental eligible."""
-    db = mocker.Mock()
-    db.query.return_value = []  # No incremental eligible tables
-    
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
-        'label': 'test_db_20251010_weekly',
-        'backup_type': 'weekly',
+        'label': 'test_db_20251010_full',
+        'backup_type': 'full',
         'finished_at': '2025-10-10 10:00:00'
     })
     
-    partitions = planner.find_recent_partitions(db, "test_db")
+    partitions = planner.find_recent_partitions(db, "test_db", group_name="empty_group")
     
     assert len(partitions) == 0
     assert db.query.call_count == 1

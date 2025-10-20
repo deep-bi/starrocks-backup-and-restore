@@ -5,7 +5,7 @@ def test_should_write_backup_history_success(mocker):
     db = mocker.Mock()
 
     entry = {
-        "label": "sales_db_20251015_inc",
+        "label": "sales_db_20251015_incremental",
         "backup_type": "incremental",
         "status": "FINISHED",
         "repository": "my_repo",
@@ -19,7 +19,7 @@ def test_should_write_backup_history_success(mocker):
     assert db.execute.call_count == 1
     sql = db.execute.call_args[0][0]
     assert "INSERT INTO ops.backup_history" in sql
-    assert "sales_db_20251015_inc" in sql
+    assert "sales_db_20251015_incremental" in sql
 
 
 def test_should_escape_null_error_message(mocker):

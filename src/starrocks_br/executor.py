@@ -1,6 +1,6 @@
 import time
 import datetime
-from typing import Dict, Optional
+from typing import Dict, Literal, Optional
 from . import history, concurrency
 
 MAX_POLLS = 21600 # 6 hours
@@ -93,8 +93,8 @@ def execute_backup(
     max_polls: int = MAX_POLLS,
     poll_interval: float = 1.0,
     *,
-    repository: Optional[str] = None,
-    backup_type: Optional[str] = None,
+    repository: str,
+    backup_type: Literal['incremental', 'full'] = None,
     scope: str = "backup",
     database: Optional[str] = None,
 ) -> Dict:
@@ -137,9 +137,9 @@ def execute_backup(
                 db,
                 {
                     "label": label,
-                    "backup_type": backup_type or "unknown",
+                    "backup_type": backup_type,
                     "status": final_status["state"],
-                    "repository": repository or "unknown",
+                    "repository": repository,
                     "started_at": started_at,
                     "finished_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     "error_message": None if success else (final_status["state"] or ""),

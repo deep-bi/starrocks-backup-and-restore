@@ -2,7 +2,7 @@ from typing import List, Dict, Optional
 
 
 def find_latest_full_backup(db, database: str) -> Optional[Dict[str, str]]:
-    """Find the latest successful full backup (weekly or monthly) for a database.
+    """Find the latest successful full backup for a database.
     
     Args:
         db: Database connection
@@ -14,7 +14,7 @@ def find_latest_full_backup(db, database: str) -> Optional[Dict[str, str]]:
     query = f"""
     SELECT label, backup_type, finished_at
     FROM ops.backup_history
-    WHERE backup_type IN ('weekly', 'monthly')
+    WHERE backup_type = 'full'
     AND status = 'FINISHED'
     AND label LIKE '{database}_%'
     ORDER BY finished_at DESC
@@ -34,39 +34,35 @@ def find_latest_full_backup(db, database: str) -> Optional[Dict[str, str]]:
     }
 
 
-def find_incremental_eligible_tables(db) -> List[Dict[str, str]]:
-    """Find tables eligible for incremental backup from table_inventory.
+def find_tables_by_group(db, group_name: str) -> List[Dict[str, str]]:
+    """Find tables belonging to a specific inventory group.
     
     Returns list of dictionaries with keys: database, table.
+    Supports '*' table wildcard which signifies all tables in a database.
     """
-    query = """
+    query = f"""
     SELECT database_name, table_name
     FROM ops.table_inventory
-    WHERE incremental_eligible = TRUE
+    WHERE inventory_group = '{group_name}'
     ORDER BY database_name, table_name
     """
-    
     rows = db.query(query)
-    
     return [
-        {
-            "database": row[0],
-            "table": row[1]
-        }
-        for row in rows
+        {"database": row[0], "table": row[1]} for row in rows
     ]
 
 
-def find_recent_partitions(db, database: str, baseline_backup_label: Optional[str] = None) -> List[Dict[str, str]]:
-    """Find partitions updated since the latest full backup from incremental eligible tables only.
+def find_recent_partitions(db, database: str, baseline_backup_label: Optional[str] = None, *, group_name: str) -> List[Dict[str, str]]:
+    """Find partitions updated since baseline for tables in the given inventory group.
     
     Args:
         db: Database connection
-        database: Database name
+        database: Database name (StarRocks database scope for backup)
         baseline_backup_label: Optional specific backup label to use as baseline.
-                             If None, uses the latest successful full backup.
+        group_name: Inventory group whose tables will be considered
     
     Returns list of dictionaries with keys: database, table, partition_name.
+    Only partitions of tables within the specified database are returned.
     """
     if baseline_backup_label:
         baseline_query = f"""
@@ -82,7 +78,7 @@ def find_recent_partitions(db, database: str, baseline_backup_label: Optional[st
     else:
         latest_backup = find_latest_full_backup(db, database)
         if not latest_backup:
-            raise ValueError(f"No successful full backup found for database '{database}'. Run a weekly or monthly backup first.")
+            raise ValueError(f"No successful full backup found for database '{database}'. Run a full database backup first.")
         baseline_time = latest_backup['finished_at']
     
     if isinstance(baseline_time, str):
@@ -90,18 +86,18 @@ def find_recent_partitions(db, database: str, baseline_backup_label: Optional[st
     else:
         threshold_str = baseline_time.strftime("%Y-%m-%d %H:%M:%S")
     
-    eligible_tables = find_incremental_eligible_tables(db)
-    
-    if not eligible_tables:
+    group_tables = find_tables_by_group(db, group_name)
+
+    if not group_tables:
         return []
-    
-    db_eligible_tables = [t for t in eligible_tables if t['database'] == database]
-    
-    if not db_eligible_tables:
+
+    db_group_tables = [t for t in group_tables if t['database'] == database]
+
+    if not db_group_tables:
         return []
     
     table_conditions = []
-    for table in db_eligible_tables:
+    for table in db_group_tables:
         table_conditions.append(f"(DB_NAME = '{table['database']}' AND TABLE_NAME = '{table['table']}')")
     
     table_filter = " AND (" + " OR ".join(table_conditions) + ")"
@@ -167,63 +163,27 @@ def build_incremental_backup_command(partitions: List[Dict[str, str]], repositor
     return command
 
 
-def build_monthly_backup_command(database: str, repository: str, label: str) -> str:
-    """Build BACKUP command for monthly full database backup."""
-    return f"""BACKUP DATABASE {database} SNAPSHOT {label}
+def build_full_backup_command(db, group_name: str, repository: str, label: str, database: str) -> str:
+    """Build BACKUP command for an inventory group.
+    
+    If the group contains '*' for any entry in the target database, generate a
+    simple BACKUP DATABASE command. Otherwise, generate ON (TABLE ...) list for
+    the specific tables within the database.
+    """
+    tables = find_tables_by_group(db, group_name)
+
+    db_entries = [t for t in tables if t['database'] == database]
+    if not db_entries:
+        return ""
+
+    if any(t['table'] == '*' for t in db_entries):
+        return f"""BACKUP DATABASE {database} SNAPSHOT {label}
     TO {repository}"""
 
-
-def find_weekly_eligible_tables(db) -> List[Dict[str, str]]:
-    """Find tables eligible for weekly backup from table_inventory.
-    
-    Returns list of dictionaries with keys: database, table.
-    """
-    query = """
-    SELECT database_name, table_name
-    FROM ops.table_inventory
-    WHERE weekly_eligible = TRUE
-    ORDER BY database_name, table_name
-    """
-    
-    rows = db.query(query)
-    
-    return [
-        {
-            "database": row[0],
-            "table": row[1]
-        }
-        for row in rows
-    ]
-
-
-def build_weekly_backup_command(tables: List[Dict[str, str]], repository: str, label: str, database: str) -> str:
-    """Build BACKUP command for weekly backup of specific tables.
-    
-    Args:
-        tables: List of tables to backup
-        repository: Repository name
-        label: Backup label
-        database: Database name (StarRocks requires BACKUP to be database-specific)
-    
-    Note: Filters tables to only include those from the specified database.
-    """
-    if not tables:
-        return ""
-    
-    db_tables = [t for t in tables if t['database'] == database]
-    
-    if not db_tables:
-        return ""
-    
     on_clauses = []
-    for table in db_tables:
-        table_name = table['table']
-        on_clauses.append(f"TABLE {table_name}")
-    
+    for t in db_entries:
+        on_clauses.append(f"TABLE {t['table']}")
     on_clause = ",\n        ".join(on_clauses)
-    
-    command = f"""BACKUP DATABASE {database} SNAPSHOT {label}
+    return f"""BACKUP DATABASE {database} SNAPSHOT {label}
     TO {repository}
     ON ({on_clause})"""
-    
-    return command

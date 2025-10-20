@@ -109,7 +109,7 @@ def test_should_execute_full_backup_workflow(mocker):
     
     backup_command = "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo"
     
-    result = executor.execute_backup(db, backup_command, max_polls=5, poll_interval=0.001)
+    result = executor.execute_backup(db, backup_command, max_polls=5, poll_interval=0.001, repository="repo", backup_type="full", scope="backup", database="test_db")
     
     assert result["success"] is True
     assert result["final_status"]["state"] == "FINISHED"
@@ -124,7 +124,7 @@ def test_should_handle_backup_execution_failure_in_workflow(mocker):
     
     backup_command = "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo"
     
-    result = executor.execute_backup(db, backup_command, max_polls=5, poll_interval=0.001)
+    result = executor.execute_backup(db, backup_command, max_polls=5, poll_interval=0.001, repository="repo", backup_type="full", scope="backup", database="test_db")
     
     assert result["success"] is False
     assert result["final_status"] is None
@@ -139,7 +139,7 @@ def test_should_handle_backup_polling_failure_in_workflow(mocker):
     
     backup_command = "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo"
     
-    result = executor.execute_backup(db, backup_command, max_polls=5, poll_interval=0.001)
+    result = executor.execute_backup(db, backup_command, max_polls=5, poll_interval=0.001, repository="repo", backup_type="full", scope="backup", database="test_db")
     
     assert result["success"] is False
     assert result["final_status"]["state"] == "ERROR" 
@@ -348,7 +348,11 @@ def test_should_execute_backup_with_history_logging_exception():
                 db, 
                 "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo",
                 max_polls=3,
-                poll_interval=0.001
+                poll_interval=0.001,
+                repository="repo",
+                backup_type="incremental",
+                scope="backup",
+                database="test_db"
             )
     
     assert result["success"] is True
@@ -375,7 +379,11 @@ def test_should_execute_backup_with_job_slot_completion_exception():
                 db, 
                 "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo",
                 max_polls=3,
-                poll_interval=0.001
+                poll_interval=0.001,
+                repository="repo",
+                backup_type="incremental",
+                scope="backup",
+                database="test_db"
             )
     
     assert result["success"] is True
@@ -389,14 +397,14 @@ def test_should_extract_label_from_both_backup_syntaxes():
     new_syntax_simple = "BACKUP DATABASE sales_db SNAPSHOT my_backup_label TO repo"
     assert executor._extract_label_from_command(new_syntax_simple) == "my_backup_label"
     
-    new_syntax_multiline = """BACKUP DATABASE sales_db SNAPSHOT sales_db_20251015_inc
+    new_syntax_multiline = """BACKUP DATABASE sales_db SNAPSHOT sales_db_20251015_incremental
     TO my_repo
     ON (TABLE fact_sales PARTITION (p20251015, p20251014))"""
-    assert executor._extract_label_from_command(new_syntax_multiline) == "sales_db_20251015_inc"
+    assert executor._extract_label_from_command(new_syntax_multiline) == "sales_db_20251015_incremental"
     
-    new_syntax_full = """BACKUP DATABASE sales_db SNAPSHOT sales_db_20251015_monthly
+    new_syntax_full = """BACKUP DATABASE sales_db SNAPSHOT sales_db_20251015_full
     TO my_repo"""
-    assert executor._extract_label_from_command(new_syntax_full) == "sales_db_20251015_monthly"
+    assert executor._extract_label_from_command(new_syntax_full) == "sales_db_20251015_full"
     
     legacy_syntax_simple = "BACKUP SNAPSHOT my_backup_20251015 TO repo"
     assert executor._extract_label_from_command(legacy_syntax_simple) == "my_backup_20251015"
@@ -453,7 +461,11 @@ def test_should_handle_backup_execution_with_zero_poll_interval():
         db, 
         "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo",
         max_polls=1,
-        poll_interval=0.0
+        poll_interval=0.0,
+        repository="repo",
+        backup_type="incremental",
+        scope="backup",
+        database="test_db"
     )
     
     assert result["success"] is True
@@ -470,7 +482,11 @@ def test_should_handle_backup_execution_with_very_small_poll_interval():
         db, 
         "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo",
         max_polls=1,
-        poll_interval=0.001
+        poll_interval=0.001,
+        repository="repo",
+        backup_type="incremental",
+        scope="backup",
+        database="test_db"
     )
     
     assert result["success"] is True
@@ -487,7 +503,11 @@ def test_should_handle_backup_execution_with_large_max_polls():
         db, 
         "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo",
         max_polls=100000,
-        poll_interval=0.001
+        poll_interval=0.001,
+        repository="repo",
+        backup_type="incremental",
+        scope="backup",
+        database="test_db"
     )
     
     assert result["success"] is True
@@ -503,7 +523,11 @@ def test_should_handle_backup_execution_with_negative_max_polls():
         db, 
         "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo",
         max_polls=-1,
-        poll_interval=0.001
+        poll_interval=0.001,
+        repository="repo",
+        backup_type="incremental",
+        scope="backup",
+        database="test_db"
     )
     
     assert result["success"] is False
@@ -593,7 +617,7 @@ def test_should_propagate_submit_error_to_execute_backup(mocker):
     
     backup_command = "BACKUP DATABASE test_db SNAPSHOT test_backup TO invalid_repo"
     
-    result = executor.execute_backup(db, backup_command, max_polls=5, poll_interval=0.001)
+    result = executor.execute_backup(db, backup_command, max_polls=5, poll_interval=0.001, repository="repo", backup_type="incremental", scope="backup", database="test_db")
     
     assert result["success"] is False
     assert result["final_status"] is None

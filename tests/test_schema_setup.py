@@ -2,22 +2,22 @@ from starrocks_br import schema
 
 def populate_table_inventory_for_testing(db) -> None:
     sample_data = [
-        ("sales_db", "fact_sales", "fact", True, True, False, True),
-        ("orders_db", "fact_orders", "fact", True, True, False, True),
+        ("daily_incremental", "sales_db", "fact_sales"),
+        ("daily_incremental", "orders_db", "fact_orders"),
         
-        ("sales_db", "dim_customers", "dimension", True, False, True, True),
-        ("sales_db", "dim_products", "dimension", True, False, True, True),
-        ("orders_db", "dim_regions", "dimension", True, False, True, True),
+        ("weekly_dimensions", "sales_db", "dim_customers"),
+        ("weekly_dimensions", "sales_db", "dim_products"),
+        ("weekly_dimensions", "orders_db", "dim_regions"),
         
-        ("config_db", "ref_countries", "reference", True, False, False, True),
-        ("config_db", "ref_currencies", "reference", True, False, False, True),
+        ("monthly_full", "config_db", "*"),
+        ("monthly_full", "sales_db", "*"),
     ]
     
     for data in sample_data:
         db.execute("""
             INSERT INTO ops.table_inventory 
-            (database_name, table_name, table_type, backup_eligible, incremental_eligible, weekly_eligible, monthly_eligible)
-            VALUES ('%s', '%s', '%s', %s, %s, %s, %s);
+            (inventory_group, database_name, table_name)
+            VALUES ('%s', '%s', '%s');
         """ % data)
 
 def test_should_create_ops_database(mocker):
@@ -67,12 +67,12 @@ def test_should_define_proper_table_structures():
     restore_history_schema = schema.get_restore_history_schema()
     run_status_schema = schema.get_run_status_schema()
     
+    assert "inventory_group" in table_inventory_schema
     assert "database_name" in table_inventory_schema
     assert "table_name" in table_inventory_schema
-    assert "table_type" in table_inventory_schema
-    assert "backup_eligible" in table_inventory_schema
     
     assert "label" in backup_history_schema
+    assert "backup_type" in backup_history_schema
     assert "status" in backup_history_schema
     
     assert "job_id" in restore_history_schema

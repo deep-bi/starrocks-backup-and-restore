@@ -7,7 +7,7 @@ def log_backup(db, entry: Dict[str, Optional[str]]) -> None:
     Expected keys in entry:
       - job_id (optional; auto-generated if missing)
       - label
-      - backup_type (incremental|weekly|monthly)
+      - backup_type (incremental|full)
       - status (FINISHED|FAILED|CANCELLED)
       - repository
       - started_at (YYYY-MM-DD HH:MM:SS)

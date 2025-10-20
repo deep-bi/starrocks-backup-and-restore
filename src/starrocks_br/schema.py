@@ -43,18 +43,14 @@ def get_table_inventory_schema() -> str:
     """Get CREATE TABLE statement for table_inventory."""
     return """
     CREATE TABLE IF NOT EXISTS ops.table_inventory (
+        inventory_group STRING NOT NULL COMMENT "Group name for a set of tables",
         database_name STRING NOT NULL COMMENT "Database name",
-        table_name STRING NOT NULL COMMENT "Table name",
-        table_type STRING NOT NULL COMMENT "Table type: fact, dimension, or reference",
-        backup_eligible BOOLEAN DEFAULT "true" COMMENT "Whether table should be backed up at all",
-        incremental_eligible BOOLEAN DEFAULT "false" COMMENT "Whether table is eligible for incremental (daily partition) backups",
-        weekly_eligible BOOLEAN DEFAULT "false" COMMENT "Whether table is eligible for weekly full backups",
-        monthly_eligible BOOLEAN DEFAULT "true" COMMENT "Whether table is eligible for monthly full backups",
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT "Record creation timestamp",
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT "Record last update timestamp"
+        table_name STRING NOT NULL COMMENT "Table name, or '*' for all tables in database",
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
-    PRIMARY KEY (database_name, table_name)
-    COMMENT "Inventory of tables and their backup eligibility flags"
+    PRIMARY KEY (inventory_group, database_name, table_name)
+    COMMENT "Inventory groups mapping to databases/tables (supports '*' wildcard)"
     """
 
 
@@ -63,7 +59,7 @@ def get_backup_history_schema() -> str:
     return """
     CREATE TABLE IF NOT EXISTS ops.backup_history (
         label STRING NOT NULL COMMENT "Unique backup snapshot label",
-        backup_type STRING NOT NULL COMMENT "Type of backup: incremental, weekly, or monthly",
+        backup_type STRING NOT NULL COMMENT "Type of backup: full or incremental",
         status STRING NOT NULL COMMENT "Final backup status: FINISHED, FAILED, CANCELLED, TIMEOUT",
         repository STRING NOT NULL COMMENT "Repository name where backup was stored",
         started_at DATETIME NOT NULL COMMENT "Backup start timestamp",

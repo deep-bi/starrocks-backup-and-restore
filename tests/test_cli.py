@@ -76,11 +76,11 @@ def test_should_run_incremental_backup_with_specific_baseline(config_file, mock_
         'error_message': None
     })
     
-    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--baseline-backup', 'test_db_20251010_monthly'])
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--baseline-backup', 'test_db_20251010_full', '--group', 'daily_incremental'])
     
     assert result.exit_code == 0
     assert 'Backup completed successfully' in result.output
-    assert 'Using specified baseline backup: test_db_20251010_monthly' in result.output
+    assert 'Using specified baseline backup: test_db_20251010_full' in result.output
 
 
 def test_should_run_incremental_backup_with_valid_config(config_file, mock_db, setup_common_mocks, mocker):
@@ -88,8 +88,8 @@ def test_should_run_incremental_backup_with_valid_config(config_file, mock_db, s
     runner = CliRunner()
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
-        'label': 'test_db_20251015_weekly',
-        'backup_type': 'weekly',
+        'label': 'test_db_20251015_full',
+        'backup_type': 'full',
         'finished_at': '2025-10-15 10:00:00'
     })
     mocker.patch('starrocks_br.planner.find_recent_partitions', return_value=[
@@ -103,11 +103,11 @@ def test_should_run_incremental_backup_with_valid_config(config_file, mock_db, s
         'error_message': None
     })
     
-    result = runner.invoke(cli.backup_incremental, ['--config', config_file])
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--group', 'daily_incremental'])
     
     assert result.exit_code == 0
     assert 'Backup completed successfully' in result.output
-    assert 'Using latest full backup as baseline: test_db_20251015_weekly (weekly)' in result.output
+    assert 'Using latest full backup as baseline: test_db_20251015_full (full)' in result.output
 
 
 def test_should_fail_when_config_file_not_found():
@@ -132,40 +132,37 @@ def test_should_fail_when_cluster_is_unhealthy(config_file, mock_db, mocker):
     assert 'unhealthy' in result.output.lower() or 'error' in result.output.lower()
 
 
-def test_should_run_weekly_backup_with_valid_config(config_file, mock_db, setup_common_mocks, mocker):
-    """Test backup weekly command."""
+def test_should_run_full_backup_with_valid_config(config_file, mock_db, setup_common_mocks, mocker):
+    """Test backup full command."""
     runner = CliRunner()
     
-    mocker.patch('starrocks_br.planner.find_weekly_eligible_tables', return_value=[
-        {"database": "test_db", "table": "dim_table"}
-    ])
-    mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_weekly')
-    mocker.patch('starrocks_br.planner.build_weekly_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_weekly TO test_repo')
+    mocker.patch('starrocks_br.planner.build_full_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_full TO test_repo')
+    mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_full')
     mocker.patch('starrocks_br.executor.execute_backup', return_value={
         'success': True,
         'final_status': {'state': 'FINISHED'},
         'error_message': None
     })
     
-    result = runner.invoke(cli.backup_tables, ['--config', config_file])
+    result = runner.invoke(cli.backup_full, ['--config', config_file, '--group', 'weekly_dimensions'])
     
     assert result.exit_code == 0
     assert 'Backup completed successfully' in result.output
 
 
-def test_should_run_monthly_backup_with_valid_config(config_file, mock_db, setup_common_mocks, mocker):
-    """Test backup monthly command."""
+def test_should_run_full_backup_with_wildcard_group(config_file, mock_db, setup_common_mocks, mocker):
+    """Test backup full command with wildcard group."""
     runner = CliRunner()
     
-    mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_monthly')
-    mocker.patch('starrocks_br.planner.build_monthly_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_monthly TO test_repo')
+    mocker.patch('starrocks_br.planner.build_full_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_full TO test_repo')
+    mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_full')
     mocker.patch('starrocks_br.executor.execute_backup', return_value={
         'success': True,
         'final_status': {'state': 'FINISHED'},
         'error_message': None
     })
     
-    result = runner.invoke(cli.backup_full_database, ['--config', config_file])
+    result = runner.invoke(cli.backup_full, ['--config', config_file, '--group', 'monthly_full'])
     
     assert result.exit_code == 0
     assert 'Backup completed successfully' in result.output
@@ -208,8 +205,8 @@ def test_should_handle_backup_failure_gracefully(config_file, mock_db, setup_com
     runner = CliRunner()
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
-        'label': 'test_db_20251015_weekly',
-        'backup_type': 'weekly',
+        'label': 'test_db_20251015_full',
+        'backup_type': 'full',
         'finished_at': '2025-10-15 10:00:00'
     })
     mocker.patch('starrocks_br.planner.find_recent_partitions', return_value=[
@@ -223,7 +220,7 @@ def test_should_handle_backup_failure_gracefully(config_file, mock_db, setup_com
         'error_message': 'Backup failed'
     })
     
-    result = runner.invoke(cli.backup_incremental, ['--config', config_file])
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--group', 'daily_incremental'])
     
     assert result.exit_code != 0
     assert 'failed' in result.output.lower()
@@ -265,30 +262,30 @@ def test_incremental_backup_with_no_partitions_warning(config_file, mock_db, set
     runner = CliRunner()
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
-        'label': 'test_db_20251015_weekly',
-        'backup_type': 'weekly',
+        'label': 'test_db_20251015_full',
+        'backup_type': 'full',
         'finished_at': '2025-10-15 10:00:00'
     })
     mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_inc')
     mocker.patch('starrocks_br.planner.find_recent_partitions', return_value=[])
     
-    result = runner.invoke(cli.backup_incremental, ['--config', config_file])
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--group', 'daily_incremental'])
     
     assert result.exit_code == 1
     assert 'Warning: No partitions found to backup' in result.output
 
 
-def test_weekly_backup_with_no_tables_warning(config_file, mock_db, setup_common_mocks, mocker):
-    """Test weekly backup when no tables are found"""
+def test_full_backup_with_no_tables_warning(config_file, mock_db, setup_common_mocks, mocker):
+    """Test full backup when no tables are found"""
     runner = CliRunner()
     
-    mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_weekly')
-    mocker.patch('starrocks_br.planner.find_weekly_eligible_tables', return_value=[])
+    mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_full')
+    mocker.patch('starrocks_br.planner.build_full_backup_command', return_value='')
     
-    result = runner.invoke(cli.backup_tables, ['--config', config_file])
+    result = runner.invoke(cli.backup_full, ['--config', config_file, '--group', 'empty_group'])
     
     assert result.exit_code == 1
-    assert 'Warning: No tables found to backup' in result.output
+    assert 'Warning: No tables found in group' in result.output
 
 
 def test_restore_partition_invalid_table_format_error(config_file):
@@ -311,7 +308,7 @@ def test_cli_exception_handling_file_not_found():
     runner = CliRunner()
     
     result = runner.invoke(cli.backup_incremental, [
-        '--config', '/nonexistent/file.yaml'
+        '--config', '/nonexistent/file.yaml', '--group', 'daily_incremental'
     ])
     
     assert result.exit_code == 1
@@ -323,7 +320,7 @@ def test_cli_exception_handling_value_error(invalid_yaml_file):
     runner = CliRunner()
     
     result = runner.invoke(cli.backup_incremental, [
-        '--config', invalid_yaml_file
+        '--config', invalid_yaml_file, '--group', 'daily_incremental'
     ])
     
     assert result.exit_code == 1
@@ -334,10 +331,11 @@ def test_cli_exception_handling_runtime_error(config_file, mock_db, mocker):
     """Test CLI exception handling for RuntimeError"""
     runner = CliRunner()
     
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
     mocker.patch('starrocks_br.health.check_cluster_health', 
                 side_effect=RuntimeError("Health check failed"))
     
-    result = runner.invoke(cli.backup_incremental, ['--config', config_file])
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--group', 'daily_incremental'])
     
     assert result.exit_code == 1
     assert 'Error: Health check failed' in result.output
@@ -349,7 +347,7 @@ def test_cli_exception_handling_generic_exception(config_file, mocker):
     
     mocker.patch('starrocks_br.db.StarRocksDB', side_effect=Exception("Unexpected error"))
     
-    result = runner.invoke(cli.backup_incremental, ['--config', config_file])
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--group', 'daily_incremental'])
     
     assert result.exit_code == 1
     assert 'Error: Unexpected error' in result.output
@@ -393,7 +391,8 @@ def test_init_command_shows_next_steps(config_file, mock_db, mocker):
     assert result.exit_code == 0
     assert 'Next steps:' in result.output
     assert 'INSERT INTO ops.table_inventory' in result.output
-    assert 'starrocks-br backup incremental' in result.output
+    assert 'inventory_group' in result.output
+    assert 'starrocks-br backup incremental --group' in result.output
 
 
 def test_should_fail_when_invalid_baseline_backup(config_file, mock_db, setup_common_mocks, mocker):
@@ -402,7 +401,7 @@ def test_should_fail_when_invalid_baseline_backup(config_file, mock_db, setup_co
     
     mock_db.query.return_value = []
     
-    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--baseline-backup', 'invalid_backup'])
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--baseline-backup', 'invalid_backup', '--group', 'daily_incremental'])
     
     assert result.exit_code != 0
     assert 'Baseline backup' in result.output and 'not found' in result.output
@@ -414,7 +413,7 @@ def test_should_fail_when_no_full_backup_found(config_file, mock_db, setup_commo
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value=None)
     
-    result = runner.invoke(cli.backup_incremental, ['--config', config_file])
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--group', 'daily_incremental'])
     
     assert result.exit_code != 0
     assert 'No successful full backup found' in result.output
@@ -425,8 +424,8 @@ def test_should_show_critical_warning_on_lost_backup_state(config_file, mock_db,
     runner = CliRunner()
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
-        'label': 'test_db_20251015_weekly',
-        'backup_type': 'weekly',
+        'label': 'test_db_20251015_full',
+        'backup_type': 'full',
         'finished_at': '2025-10-15 10:00:00'
     })
     mocker.patch('starrocks_br.planner.find_recent_partitions', return_value=[
@@ -440,7 +439,7 @@ def test_should_show_critical_warning_on_lost_backup_state(config_file, mock_db,
         'error_message': 'Backup tracking lost for test_db_20251016_inc in database test_db'
     })
     
-    result = runner.invoke(cli.backup_incremental, ['--config', config_file])
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--group', 'daily_incremental'])
     
     assert result.exit_code != 0
     assert 'CRITICAL: Backup tracking lost' in result.output
@@ -449,40 +448,19 @@ def test_should_show_critical_warning_on_lost_backup_state(config_file, mock_db,
     assert 'Backup tracking lost' in result.output
 
 
-def test_should_show_critical_warning_on_lost_weekly_backup(config_file, mock_db, setup_common_mocks, mocker):
-    """Test that CLI shows critical warning for LOST state in weekly backup."""
+def test_should_show_critical_warning_on_lost_full_backup(config_file, mock_db, setup_common_mocks, mocker):
+    """Test that CLI shows critical warning for LOST state in full backup."""
     runner = CliRunner()
     
-    mocker.patch('starrocks_br.planner.find_weekly_eligible_tables', return_value=[
-        {"database": "test_db", "table": "dim_table"}
-    ])
-    mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_weekly')
-    mocker.patch('starrocks_br.planner.build_weekly_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_weekly TO test_repo')
+    mocker.patch('starrocks_br.planner.build_full_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_full TO test_repo')
+    mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_full')
     mocker.patch('starrocks_br.executor.execute_backup', return_value={
         'success': False,
         'final_status': {'state': 'LOST'},
         'error_message': 'Backup tracking lost - race condition detected'
     })
     
-    result = runner.invoke(cli.backup_tables, ['--config', config_file])
-    
-    assert result.exit_code != 0
-    assert 'CRITICAL: Backup tracking lost' in result.output
-
-
-def test_should_show_critical_warning_on_lost_monthly_backup(config_file, mock_db, setup_common_mocks, mocker):
-    """Test that CLI shows critical warning for LOST state in monthly backup."""
-    runner = CliRunner()
-    
-    mocker.patch('starrocks_br.labels.generate_label', return_value='test_db_20251016_monthly')
-    mocker.patch('starrocks_br.planner.build_monthly_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_monthly TO test_repo')
-    mocker.patch('starrocks_br.executor.execute_backup', return_value={
-        'success': False,
-        'final_status': {'state': 'LOST'},
-        'error_message': 'Backup tracking lost'
-    })
-    
-    result = runner.invoke(cli.backup_full_database, ['--config', config_file])
+    result = runner.invoke(cli.backup_full, ['--config', config_file, '--group', 'weekly_dimensions'])
     
     assert result.exit_code != 0
     assert 'CRITICAL: Backup tracking lost' in result.output

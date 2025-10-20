@@ -1,8 +1,8 @@
-from typing import List, Optional
+from typing import List, Optional, Literal
 import re
 
 
-def generate_label(database: str, date: str, backup_type: str, existing_labels: Optional[List[str]] = None) -> str:
+def generate_label(database: str, date: str, backup_type: Literal['incremental', 'full'], existing_labels: Optional[List[str]] = None) -> str:
     """Generate a unique snapshot label for backup operations.
     
     Format: {database}_{yyyymmdd}_{backup_type}
@@ -11,7 +11,7 @@ def generate_label(database: str, date: str, backup_type: str, existing_labels: 
     Args:
         database: Database name
         date: Date in YYYY-MM-DD format
-        backup_type: Type of backup (inc, weekly, monthly)
+        backup_type: Type of backup (incremental, full)
         existing_labels: List of existing labels to avoid collisions with
         
     Returns:

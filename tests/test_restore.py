@@ -8,12 +8,12 @@ def test_should_build_partition_restore_command():
         database="sales_db",
         table="fact_sales",
         partition="p20251015",
-        backup_label="sales_db_20251015_inc",
+        backup_label="sales_db_20251015_incremental",
         repository="my_repo",
     )
     
     expected = """
-    RESTORE SNAPSHOT sales_db_20251015_inc
+    RESTORE SNAPSHOT sales_db_20251015_incremental
     FROM my_repo
     ON (TABLE sales_db.fact_sales PARTITION (p20251015))"""
     
@@ -93,7 +93,7 @@ def test_should_log_restore_history(mocker):
     
     entry = {
         "job_id": "restore-1",
-        "backup_label": "sales_db_20251015_inc",
+        "backup_label": "sales_db_20251015_incremental",
         "restore_type": "partition",
         "status": "FINISHED",
         "repository": "my_repo",
@@ -107,7 +107,7 @@ def test_should_log_restore_history(mocker):
     assert db.execute.call_count == 1
     sql = db.execute.call_args[0][0]
     assert "INSERT INTO ops.restore_history" in sql
-    assert "sales_db_20251015_inc" in sql
+    assert "sales_db_20251015_incremental" in sql
 
 
 def test_should_execute_restore_workflow(mocker):
@@ -129,7 +129,7 @@ def test_should_execute_restore_workflow(mocker):
     result = restore.execute_restore(
         db,
         restore_command,
-        backup_label="sales_db_20251015_inc",
+        backup_label="sales_db_20251015_incremental",
         restore_type="partition",
         repository="my_repo",
         max_polls=5,
