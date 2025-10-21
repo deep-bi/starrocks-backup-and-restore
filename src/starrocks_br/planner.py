@@ -98,7 +98,10 @@ def find_recent_partitions(db, database: str, baseline_backup_label: Optional[st
     
     table_conditions = []
     for table in db_group_tables:
-        table_conditions.append(f"(DB_NAME = '{table['database']}' AND TABLE_NAME = '{table['table']}')")
+        if table['table'] == '*':
+            table_conditions.append(f"(DB_NAME = '{table['database']}')")
+        else:
+            table_conditions.append(f"(DB_NAME = '{table['database']}' AND TABLE_NAME = '{table['table']}')")
     
     table_filter = " AND (" + " OR ".join(table_conditions) + ")"
     

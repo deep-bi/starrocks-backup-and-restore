@@ -411,3 +411,29 @@ def test_should_return_empty_list_when_no_tables_for_database_in_get_all_partiti
     
     assert len(partitions) == 0
     db.query.assert_not_called()
+
+
+def test_find_recent_partitions_handles_wildcard_group(mocker):
+    """Test that find_recent_partitions correctly handles wildcard table groups."""
+    db = mocker.Mock()
+    db.query.side_effect = [
+        [("sales_db", "*")],
+        [("sales_db", "fact_sales", "p20251015", "2025-10-15"),
+         ("sales_db", "dim_customers", "p20251014", "2025-10-14")],
+    ]
+    
+    mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
+        'label': 'sales_db_20251010_full',
+        'backup_type': 'full',
+        'finished_at': '2025-10-10 10:00:00'
+    })
+    
+    partitions = planner.find_recent_partitions(db, "sales_db", group_name="monthly_full")
+    
+    assert len(partitions) == 2
+    assert {"database": "sales_db", "table": "fact_sales", "partition_name": "p20251015"} in partitions
+    assert {"database": "sales_db", "table": "dim_customers", "partition_name": "p20251014"} in partitions
+    
+    partitions_query = db.query.call_args_list[1][0][0]
+    assert "TABLE_NAME = '*'" not in partitions_query
+    assert "(DB_NAME = 'sales_db')" in partitions_query
