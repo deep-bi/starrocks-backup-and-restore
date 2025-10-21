@@ -1,5 +1,7 @@
 from typing import List, Dict, Optional
 
+from starrocks_br import logger
+
 
 def find_latest_full_backup(db, database: str) -> Optional[Dict[str, str]]:
     """Find the latest successful full backup for a database.
@@ -96,34 +98,50 @@ def find_recent_partitions(db, database: str, baseline_backup_label: Optional[st
     if not db_group_tables:
         return []
     
-    table_conditions = []
-    for table in db_group_tables:
-        if table['table'] == '*':
-            table_conditions.append(f"(DB_NAME = '{table['database']}')")
+    concrete_tables = []
+    for table_entry in db_group_tables:
+        if table_entry['table'] == '*':
+            show_tables_query = f"SHOW TABLES FROM {table_entry['database']}"
+            tables_rows = db.query(show_tables_query)
+            for row in tables_rows:
+                concrete_tables.append({
+                    'database': table_entry['database'],
+                    'table': row[0]
+                })
         else:
-            table_conditions.append(f"(DB_NAME = '{table['database']}' AND TABLE_NAME = '{table['table']}')")
+            concrete_tables.append(table_entry)
     
-    table_filter = " AND (" + " OR ".join(table_conditions) + ")"
+    recent_partitions = []
+    for table_entry in concrete_tables:
+        db_name = table_entry['database']
+        table_name = table_entry['table']
+        
+        show_partitions_query = f"SHOW PARTITIONS FROM {db_name}.{table_name}"
+        try:
+            partition_rows = db.query(show_partitions_query)
+        except Exception as e:
+            logger.error(f"Error showing partitions for table {db_name}.{table_name}: {e}")
+            continue
+        
+        for row in partition_rows:
+            # FOR SHARED NOTHING CLUSTER:
+            # PartitionId, PartitionName, VisibleVersion, VisibleVersionTime, VisibleVersionHash, State, PartitionKey, Range, DistributionKey, Buckets, ReplicationNum, StorageMedium, CooldownTime, LastConsistencyCheckTime, DataSize, StorageSize, IsInMemory, RowCount, DataVersion, VersionEpoch, VersionTxnType
+            partition_name = row[1]
+            visible_version_time = row[3]
+
+            if isinstance(visible_version_time, str):
+                version_time_str = visible_version_time
+            else:
+                version_time_str = visible_version_time.strftime("%Y-%m-%d %H:%M:%S")
+            
+            if version_time_str > threshold_str:
+                recent_partitions.append({
+                    'database': db_name,
+                    'table': table_name,
+                    'partition_name': partition_name
+                })
     
-    query = f"""
-    SELECT DB_NAME, TABLE_NAME, PARTITION_NAME, VISIBLE_VERSION_TIME
-    FROM information_schema.partitions_meta 
-    WHERE PARTITION_NAME IS NOT NULL 
-    AND VISIBLE_VERSION_TIME > '{threshold_str}'
-    {table_filter}
-    ORDER BY VISIBLE_VERSION_TIME DESC
-    """
-    
-    rows = db.query(query)
-    
-    return [
-        {
-            "database": row[0],
-            "table": row[1], 
-            "partition_name": row[2]
-        }
-        for row in rows
-    ]
+    return recent_partitions
 
 
 def build_incremental_backup_command(partitions: List[Dict[str, str]], repository: str, label: str, database: str) -> str:

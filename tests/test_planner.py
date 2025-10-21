@@ -39,7 +39,7 @@ def test_should_find_partitions_with_specific_baseline_backup(mocker):
     db.query.side_effect = [
         [("2025-10-10 10:00:00",)],
         [("sales_db", "fact_sales")],
-        [("sales_db", "fact_sales", "p20251015", "2025-10-15")],
+        [("PartitionId", "p20251015", "VisibleVersion", "2025-10-15 12:00:00", "VisibleVersionHash")],  # SHOW PARTITIONS result
     ]
     
     partitions = planner.find_recent_partitions(db, "sales_db", "sales_db_20251010_full", group_name="daily_incremental")
@@ -50,6 +50,9 @@ def test_should_find_partitions_with_specific_baseline_backup(mocker):
     baseline_query = db.query.call_args_list[0][0][0]
     assert "ops.backup_history" in baseline_query
     assert "label = 'sales_db_20251010_full'" in baseline_query
+    
+    show_partitions_query = db.query.call_args_list[2][0][0]
+    assert "SHOW PARTITIONS FROM sales_db.fact_sales" in show_partitions_query
 
 
 def test_should_fail_when_no_full_backup_found(mocker):
@@ -76,9 +79,9 @@ def test_should_find_partitions_updated_since_latest_full_backup(mocker):
     """Test finding partitions updated since the latest full backup."""
     db = mocker.Mock()
     db.query.side_effect = [
-        [("sales_db", "fact_sales"), ("orders_db", "fact_orders")],  # group tables
-        [("sales_db", "fact_sales", "p20251015", "2025-10-15"),
-         ("sales_db", "fact_sales", "p20251014", "2025-10-14")],  # recent partitions
+        [("sales_db", "fact_sales"), ("orders_db", "fact_orders")],
+        [("PartitionId", "p20251015", "VisibleVersion", "2025-10-15 12:00:00", "VisibleVersionHash"),
+         ("PartitionId", "p20251014", "VisibleVersion", "2025-10-14 12:00:00", "VisibleVersionHash")],
     ]
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
@@ -128,11 +131,11 @@ def test_should_handle_single_partition():
 
 
 def test_should_format_date_correctly_in_query(mocker):
-    """Test that the query uses the correct baseline time format."""
+    """Test that the query uses the correct baseline time format and SHOW PARTITIONS command."""
     db = mocker.Mock()
     db.query.side_effect = [
-        [("sales_db", "fact_sales")],  # group tables
-        [],  # no recent partitions
+        [("sales_db", "fact_sales")],
+        [],
     ]
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
@@ -143,19 +146,16 @@ def test_should_format_date_correctly_in_query(mocker):
     
     planner.find_recent_partitions(db, "sales_db", group_name="daily_incremental")
     
-    # Check the second query (the partitions query)
     partitions_query = db.query.call_args_list[1][0][0]
-    assert "information_schema.partitions_meta" in partitions_query
-    assert "WHERE" in partitions_query
-    assert "VISIBLE_VERSION_TIME > '2025-10-10 10:00:00'" in partitions_query
+    assert "SHOW PARTITIONS FROM sales_db.fact_sales" in partitions_query
 
 
 def test_should_build_full_backup_command_with_wildcard(mocker):
     """Test building full backup command when group contains wildcard."""
     db = mocker.Mock()
     db.query.return_value = [
-        ("sales_db", "*"),  # Wildcard entry
-        ("sales_db", "dim_customers"),  # Specific table
+        ("sales_db", "*"),
+        ("sales_db", "dim_customers"),
     ]
     
     command = planner.build_full_backup_command(db, "monthly_full", "my_repo", "sales_db_20251015_full", "sales_db")
@@ -255,7 +255,7 @@ def test_should_find_recent_partitions_with_group_filtering(mocker):
     db = mocker.Mock()
     db.query.side_effect = [
         [("sales_db", "fact_sales"), ("orders_db", "fact_orders")],
-        [("sales_db", "fact_sales", "p20251015", "2025-10-15")],
+        [("PartitionId", "p20251015", "VisibleVersion", "2025-10-15 12:00:00", "VisibleVersionHash")],
     ]
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
@@ -275,8 +275,8 @@ def test_should_handle_no_recent_partitions_with_group_filtering(mocker):
     """Test handling when no recent partitions exist for group tables."""
     db = mocker.Mock()
     db.query.side_effect = [
-        [("sales_db", "fact_sales")],  # Group tables
-        [],  # No recent partitions
+        [("sales_db", "fact_sales")],
+        [("PartitionId", "p20251005", "VisibleVersion", "2025-10-05 12:00:00", "VisibleVersionHash")],  # Old partition (before baseline)
     ]
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
@@ -418,8 +418,9 @@ def test_find_recent_partitions_handles_wildcard_group(mocker):
     db = mocker.Mock()
     db.query.side_effect = [
         [("sales_db", "*")],
-        [("sales_db", "fact_sales", "p20251015", "2025-10-15"),
-         ("sales_db", "dim_customers", "p20251014", "2025-10-14")],
+        [("fact_sales",), ("dim_customers",)],
+        [("PartitionId", "p20251015", "VisibleVersion", "2025-10-15 12:00:00", "VisibleVersionHash")],
+        [("PartitionId", "p20251014", "VisibleVersion", "2025-10-14 12:00:00", "VisibleVersionHash")],
     ]
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
@@ -434,6 +435,63 @@ def test_find_recent_partitions_handles_wildcard_group(mocker):
     assert {"database": "sales_db", "table": "fact_sales", "partition_name": "p20251015"} in partitions
     assert {"database": "sales_db", "table": "dim_customers", "partition_name": "p20251014"} in partitions
     
-    partitions_query = db.query.call_args_list[1][0][0]
-    assert "TABLE_NAME = '*'" not in partitions_query
-    assert "(DB_NAME = 'sales_db')" in partitions_query
+    show_tables_query = db.query.call_args_list[1][0][0]
+    assert "SHOW TABLES FROM sales_db" in show_tables_query
+    
+    show_partitions_query_1 = db.query.call_args_list[2][0][0]
+    assert "SHOW PARTITIONS FROM sales_db.fact_sales" in show_partitions_query_1
+    
+    show_partitions_query_2 = db.query.call_args_list[3][0][0]
+    assert "SHOW PARTITIONS FROM sales_db.dim_customers" in show_partitions_query_2
+
+
+def test_find_recent_partitions_with_multiple_tables_mixed_timestamps(mocker):
+    """Test finding recent partitions across multiple tables with mixed old and new partitions."""
+    db = mocker.Mock()
+    db.query.side_effect = [
+        [("sales_db", "fact_sales"), ("sales_db", "fact_orders"), ("sales_db", "dim_products")],
+        # SHOW PARTITIONS for fact_sales - mix of old and new partitions
+        [("PartitionId", "p20251005", "VisibleVersion", "2025-10-05 08:00:00", "VisibleVersionHash"),  # Old (before baseline)
+         ("PartitionId", "p20251015", "VisibleVersion", "2025-10-15 12:00:00", "VisibleVersionHash"),  # New
+         ("PartitionId", "p20251016", "VisibleVersion", "2025-10-16 14:00:00", "VisibleVersionHash")],  # New
+        # SHOW PARTITIONS for fact_orders - only old partitions
+        [("PartitionId", "p20251001", "VisibleVersion", "2025-10-01 10:00:00", "VisibleVersionHash"),  # Old
+         ("PartitionId", "p20251008", "VisibleVersion", "2025-10-08 11:00:00", "VisibleVersionHash")],  # Old
+        # SHOW PARTITIONS for dim_products - only new partitions
+        [("PartitionId", "p20251020", "VisibleVersion", "2025-10-20 09:00:00", "VisibleVersionHash"),  # New
+         ("PartitionId", "p20251021", "VisibleVersion", "2025-10-21 10:00:00", "VisibleVersionHash")],  # New
+    ]
+    
+    mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
+        'label': 'sales_db_20251010_full',
+        'backup_type': 'full',
+        'finished_at': '2025-10-10 10:00:00'
+    })
+    
+    partitions = planner.find_recent_partitions(db, "sales_db", group_name="daily_incremental")
+    
+    # Should only include partitions with timestamps after 2025-10-10 10:00:00
+    assert len(partitions) == 4
+    
+    # From fact_sales (2 new partitions)
+    assert {"database": "sales_db", "table": "fact_sales", "partition_name": "p20251015"} in partitions
+    assert {"database": "sales_db", "table": "fact_sales", "partition_name": "p20251016"} in partitions
+    
+    # From fact_orders (0 new partitions - all are old)
+    assert {"database": "sales_db", "table": "fact_orders", "partition_name": "p20251001"} not in partitions
+    assert {"database": "sales_db", "table": "fact_orders", "partition_name": "p20251008"} not in partitions
+    
+    # From dim_products (2 new partitions)
+    assert {"database": "sales_db", "table": "dim_products", "partition_name": "p20251020"} in partitions
+    assert {"database": "sales_db", "table": "dim_products", "partition_name": "p20251021"} in partitions
+    
+    assert db.query.call_count == 4
+    
+    show_partitions_query_1 = db.query.call_args_list[1][0][0]
+    assert "SHOW PARTITIONS FROM sales_db.fact_sales" in show_partitions_query_1
+    
+    show_partitions_query_2 = db.query.call_args_list[2][0][0]
+    assert "SHOW PARTITIONS FROM sales_db.fact_orders" in show_partitions_query_2
+    
+    show_partitions_query_3 = db.query.call_args_list[3][0][0]
+    assert "SHOW PARTITIONS FROM sales_db.dim_products" in show_partitions_query_3
