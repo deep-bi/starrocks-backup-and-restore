@@ -6,6 +6,28 @@ The StarRocks Backup & Restore tool provides production-grade automation for bac
 
 ## Installation
 
+### Option 1: Using Devbox (Recommended for Development)
+
+Devbox provides a reproducible development environment with all required tools.
+
+```bash
+# Install devbox (if not already installed)
+curl -fsSL https://get.jetpack.io/devbox | bash
+
+# Start devbox shell - this automatically:
+# - Installs Python 3.11 and dependencies
+# - Creates a virtual environment (.venv)
+# - Installs the package in editable mode
+# - Installs development dependencies
+devbox shell
+
+# Once inside the devbox shell, you're ready to go:
+starrocks-br --help
+pytest
+```
+
+### Option 2: Manual Setup
+
 ```bash
 # Activate virtual environment
 source .venv/bin/activate

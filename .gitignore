@@ -9,4 +9,7 @@ starrocks_br.egg-info/
 *.md
 !README.md
 !checklist.md
+!integration_testing_guide.md
 config.yaml
+.devbox/
+.devbox_setup_complete
