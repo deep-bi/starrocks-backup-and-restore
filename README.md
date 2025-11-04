@@ -4,6 +4,8 @@
 
 The StarRocks Backup & Restore tool provides production-grade automation for backup and restore operations.
 
+**Important:** This tool requires StarRocks 3.5 or later. Earlier versions are not supported due to differences in the `SHOW FRONTENDS` and `SHOW BACKENDS` command output formats, which are used for cluster health checks.
+
 ## Installation
 
 ### Option 1: Install from PyPI (Recommended for Production)
@@ -181,7 +183,7 @@ starrocks-br backup full --config config.yaml --group <group_name>
 **Parameters:**
 - `--group`: The inventory group to back up.
 
-**Flow:**
+**Internal flow:**
 1. Load config → verify cluster health → ensure repository exists
 2. Reserve job slot (prevent concurrent backups)
 3. Query `ops.table_inventory` for all tables in the specified group.
@@ -201,7 +203,7 @@ starrocks-br backup incremental --config config.yaml --group <group_name>
 - `--group`: The inventory group to back up.
 - `--baseline-backup` (Optional): Specify a backup label to use as the baseline instead of the latest full backup.
 
-**Flow:**
+**Internal flow:**
 1. Load config → verify cluster health → ensure repository exists
 2. Reserve job slot
 3. Find the latest successful full backup for the group to use as a baseline.
@@ -242,7 +244,7 @@ starrocks-br restore \
 **Purpose of `--rename-suffix`:**
 The restore process creates temporary tables with the specified suffix (e.g., `table_restored`) to avoid conflicts with existing tables. Once the restore is complete and verified, the tool performs atomic renames to swap the original tables with the restored data. This ensures data safety and allows for rollback if needed.
 
-**Flow:**
+**Internal flow:**
 1. Load config → verify cluster health → ensure repository exists
 2. Find the correct restore sequence (full backup + optional incremental)
 3. Get tables from backup manifest (optionally filtered by group)
