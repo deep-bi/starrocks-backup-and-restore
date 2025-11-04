@@ -8,17 +8,22 @@ The StarRocks Backup & Restore tool provides production-grade automation for bac
 
 ### Option 1: Install from PyPI (Recommended for Production)
 
-Install the package from PyPI using pip:
+We recommend using a virtual environment to ensure proper script availability and dependency isolation:
 
 ```bash
+# Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # On Linux/Mac
+# .venv\Scripts\activate    # On Windows
+
+# Install the package from PyPI
 pip install starrocks-br==0.1.0
-```
 
-Verify the installation:
-
-```bash
+# Verify the installation
 starrocks-br --help
 ```
+
+**Note:** Always activate the virtual environment before using the tool. The `starrocks-br` command will only be available when the virtual environment is activated.
 
 ### Option 2: Using Devbox (Recommended for Development)
 
@@ -61,24 +66,40 @@ pip install -e ".[dev]"
 
 After installing from PyPI, follow these steps:
 
-1. **Verify installation:**
+1. **Activate your virtual environment** (if not already active):
+   ```bash
+   source .venv/bin/activate  # On Linux/Mac
+   # .venv\Scripts\activate    # On Windows
+   ```
+
+2. **Verify installation:**
    ```bash
    starrocks-br --help
    ```
 
-2. **Create your `config.yaml` file** (see Configuration section below)
+3. **Create your `config.yaml` file** (see Configuration section below)
 
-3. **Set your password as an environment variable:**
+4. **Set your password as an environment variable:**
    ```bash
    export STARROCKS_PASSWORD="your_password"
    ```
+   
+   On Windows (PowerShell):
+   ```powershell
+   $env:STARROCKS_PASSWORD="your_password"
+   ```
+   
+   On Windows (Command Prompt):
+   ```cmd
+   set STARROCKS_PASSWORD=your_password
+   ```
 
-4. **Initialize the ops schema:**
+5. **Initialize the ops schema:**
    ```bash
    starrocks-br init --config config.yaml
    ```
 
-5. **Start using the tool** - see Commands section below for details
+6. **Start using the tool** - see Commands section below for details
 
 ## Configuration
 
