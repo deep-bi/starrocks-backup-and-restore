@@ -3,7 +3,7 @@ import datetime
 from typing import Dict, List, Optional
 from . import history, concurrency, logger
 
-MAX_POLLS = 21600 # 6 hours
+MAX_POLLS = 86400 # 1 day
 
 def get_snapshot_timestamp(db, repo_name: str, snapshot_name: str) -> str:
     """Get the backup timestamp for a specific snapshot from the repository.

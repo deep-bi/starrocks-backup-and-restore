@@ -3,7 +3,7 @@ import datetime
 from typing import Dict, Literal, Optional
 from . import history, concurrency, logger, timezone
 
-MAX_POLLS = 21600 # 6 hours
+MAX_POLLS = 86400 # 1 day
 
 def submit_backup_command(db, backup_command: str) -> tuple[bool, Optional[str]]:
     """Submit a backup command to StarRocks.
