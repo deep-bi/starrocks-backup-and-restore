@@ -1,7 +1,7 @@
 import time
 import datetime
 from typing import Dict, Literal, Optional
-from . import history, concurrency, logger
+from . import history, concurrency, logger, timezone
 
 MAX_POLLS = 21600 # 6 hours
 
@@ -117,7 +117,8 @@ def execute_backup(
     if not database:
         database = _extract_database_from_command(backup_command)
 
-    started_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cluster_tz = db.timezone
+    started_at = timezone.get_current_time_in_cluster_tz(cluster_tz)
     
     success, submit_error = submit_backup_command(db, backup_command)
     if not success:
@@ -133,6 +134,7 @@ def execute_backup(
         success = final_status["state"] == "FINISHED"
 
         try:
+            finished_at = timezone.get_current_time_in_cluster_tz(cluster_tz)
             history.log_backup(
                 db,
                 {
@@ -141,7 +143,7 @@ def execute_backup(
                     "status": final_status["state"],
                     "repository": repository,
                     "started_at": started_at,
-                    "finished_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "finished_at": finished_at,
                     "error_message": None if success else (final_status["state"] or ""),
                 },
             )

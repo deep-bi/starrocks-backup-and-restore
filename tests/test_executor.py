@@ -1,5 +1,14 @@
 from unittest.mock import Mock, patch
+import pytest
 from starrocks_br import executor
+
+
+@pytest.fixture
+def db_with_timezone():
+    """Fixture that provides a mock database object with timezone property set to UTC."""
+    db = Mock()
+    db.timezone = "UTC"
+    return db
 
 
 def test_should_submit_backup_command_successfully(mocker):
@@ -99,8 +108,8 @@ def test_should_handle_dict_format_backup_status(mocker):
     assert status["state"] == "FINISHED"
 
 
-def test_should_execute_full_backup_workflow(mocker):
-    db = mocker.Mock()
+def test_should_execute_full_backup_workflow(mocker, db_with_timezone):
+    db = db_with_timezone
     db.execute.return_value = None
     db.query.side_effect = [
         [("job1", "test_backup", "test_db", "PENDING")],
@@ -118,8 +127,8 @@ def test_should_execute_full_backup_workflow(mocker):
     assert db.query.call_count == 2
 
 
-def test_should_handle_backup_execution_failure_in_workflow(mocker):
-    db = mocker.Mock()
+def test_should_handle_backup_execution_failure_in_workflow(mocker, db_with_timezone):
+    db = db_with_timezone
     db.execute.side_effect = Exception("Database connection failed")
     
     backup_command = "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo"
@@ -132,8 +141,8 @@ def test_should_handle_backup_execution_failure_in_workflow(mocker):
     assert "Database connection failed" in result["error_message"]
 
 
-def test_should_handle_backup_polling_failure_in_workflow(mocker):
-    db = mocker.Mock()
+def test_should_handle_backup_polling_failure_in_workflow(mocker, db_with_timezone):
+    db = db_with_timezone
     db.execute.return_value = None
     db.query.side_effect = Exception("Query failed")
     
@@ -147,9 +156,9 @@ def test_should_handle_backup_polling_failure_in_workflow(mocker):
     assert "test_backup" in result["error_message"]
 
 
-def test_should_handle_lost_backup_in_workflow(mocker):
+def test_should_handle_lost_backup_in_workflow(mocker, db_with_timezone):
     """Test that execute_backup handles LOST state correctly (race condition detected)."""
-    db = mocker.Mock()
+    db = db_with_timezone
     db.execute.return_value = None
     db.query.side_effect = [
         [("job1", "other_backup", "test_db", "FINISHED")],  # Wrong backup on first poll
@@ -187,8 +196,8 @@ def test_should_handle_lost_backup_in_workflow(mocker):
     assert kwargs.get("final_state") == "LOST"
 
 
-def test_should_log_history_and_finalize_on_success(mocker):
-    db = mocker.Mock()
+def test_should_log_history_and_finalize_on_success(mocker, db_with_timezone):
+    db = db_with_timezone
     db.execute.return_value = None
     db.query.side_effect = [
         [("job1", "test_backup", "test_db", "UPLOADING")],
@@ -226,8 +235,8 @@ def test_should_log_history_and_finalize_on_success(mocker):
     assert kwargs.get("final_state") == "FINISHED"
 
 
-def test_should_log_history_and_finalize_on_failure(mocker):
-    db = mocker.Mock()
+def test_should_log_history_and_finalize_on_failure(mocker, db_with_timezone):
+    db = db_with_timezone
     db.execute.return_value = None
     db.query.side_effect = [
         [("job1", "test_backup", "test_db", "UPLOADING")],
@@ -330,9 +339,9 @@ def test_should_handle_backup_status_polling_with_malformed_tuple():
     assert status["label"] == "test_backup"
 
 
-def test_should_execute_backup_with_history_logging_exception():
+def test_should_execute_backup_with_history_logging_exception(db_with_timezone):
     """Test backup execution when history logging raises an exception."""
-    db = Mock()
+    db = db_with_timezone
     db.execute.return_value = None
     db.query.side_effect = [
         [("job1", "test_backup", "test_db", "UPLOADING")],
@@ -361,9 +370,9 @@ def test_should_execute_backup_with_history_logging_exception():
     assert complete_slot.call_count == 1
 
 
-def test_should_execute_backup_with_job_slot_completion_exception():
+def test_should_execute_backup_with_job_slot_completion_exception(db_with_timezone):
     """Test backup execution when job slot completion raises an exception."""
-    db = Mock()
+    db = db_with_timezone
     db.execute.return_value = None
     db.query.side_effect = [
         [("job1", "test_backup", "test_db", "UPLOADING")],
@@ -451,9 +460,9 @@ def test_should_extract_label_from_command_case_insensitive():
     assert label == "unknown_backup"  # lowercase commands not supported by parser
 
 
-def test_should_handle_backup_execution_with_zero_poll_interval():
+def test_should_handle_backup_execution_with_zero_poll_interval(db_with_timezone):
     """Test backup execution with zero poll interval."""
-    db = Mock()
+    db = db_with_timezone
     db.execute.return_value = None
     db.query.return_value = [("job1", "test_backup", "test_db", "FINISHED")]
     
@@ -472,9 +481,9 @@ def test_should_handle_backup_execution_with_zero_poll_interval():
     assert result["final_status"]["state"] == "FINISHED"
 
 
-def test_should_handle_backup_execution_with_very_small_poll_interval():
+def test_should_handle_backup_execution_with_very_small_poll_interval(db_with_timezone):
     """Test backup execution with very small poll interval."""
-    db = Mock()
+    db = db_with_timezone
     db.execute.return_value = None
     db.query.return_value = [("job1", "test_backup", "test_db", "FINISHED")]
     
@@ -493,9 +502,9 @@ def test_should_handle_backup_execution_with_very_small_poll_interval():
     assert result["final_status"]["state"] == "FINISHED"
 
 
-def test_should_handle_backup_execution_with_large_max_polls():
+def test_should_handle_backup_execution_with_large_max_polls(db_with_timezone):
     """Test backup execution with large max polls value."""
-    db = Mock()
+    db = db_with_timezone
     db.execute.return_value = None
     db.query.return_value = [("job1", "test_backup", "test_db", "FINISHED")]
     
@@ -514,9 +523,9 @@ def test_should_handle_backup_execution_with_large_max_polls():
     assert result["final_status"]["state"] == "FINISHED"
 
 
-def test_should_handle_backup_execution_with_negative_max_polls():
+def test_should_handle_backup_execution_with_negative_max_polls(db_with_timezone):
     """Test backup execution with negative max polls."""
-    db = Mock()
+    db = db_with_timezone
     db.execute.return_value = None
     
     result = executor.execute_backup(
@@ -610,9 +619,9 @@ def test_should_return_detailed_error_on_submit_failure(mocker):
     assert "Failed to submit backup command" in error
 
 
-def test_should_propagate_submit_error_to_execute_backup(mocker):
+def test_should_propagate_submit_error_to_execute_backup(mocker, db_with_timezone):
     """Test that execute_backup includes detailed submit error in result."""
-    db = mocker.Mock()
+    db = db_with_timezone
     db.execute.side_effect = ValueError("Invalid backup repository name")
     
     backup_command = "BACKUP DATABASE test_db SNAPSHOT test_backup TO invalid_repo"

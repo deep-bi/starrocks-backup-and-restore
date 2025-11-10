@@ -30,6 +30,7 @@ class StarRocksDB:
         self.database = database
         self._connection = None
         self.tls_config = tls_config or {}
+        self._timezone: Optional[str] = None
     
     def connect(self) -> None:
         """Establish database connection."""
@@ -110,4 +111,34 @@ class StarRocksDB:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit."""
         self.close()
+    
+    @property
+    def timezone(self) -> str:
+        """Get the StarRocks cluster timezone.
+        
+        Queries the cluster timezone on first access and caches it for subsequent use.
+        If the query fails (e.g., database unavailable, connection error, permissions),
+        defaults to 'UTC' to ensure the property always returns a valid timezone string.
+        
+        Returns:
+            Timezone string (e.g., 'Asia/Shanghai', 'UTC', '+08:00')
+            Defaults to 'UTC' if query fails or returns no results.
+        """
+        if self._timezone is None:
+            try:
+                query = "SHOW VARIABLES LIKE 'time_zone'"
+                rows = self.query(query)
+                
+                if not rows:
+                    self._timezone = "UTC"
+                else:
+                    row = rows[0]
+                    if isinstance(row, dict):
+                        self._timezone = row.get("Value", "UTC")
+                    else:
+                        self._timezone = row[1] if len(row) > 1 else "UTC"
+            except Exception:
+                self._timezone = "UTC"
+        
+        return self._timezone
 

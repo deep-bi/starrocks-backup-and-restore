@@ -145,3 +145,113 @@ def test_should_skip_tls_arguments_when_tls_disabled(mocker, setup_password_env)
     assert 'tls_versions' not in called_kwargs
     assert 'ssl_verify_cert' not in called_kwargs
 
+
+def test_should_query_and_cache_timezone(mocker, setup_password_env):
+    """Test that timezone property queries and caches the cluster timezone."""
+    conn = db.StarRocksDB('localhost', 9030, 'root', os.getenv('STARROCKS_PASSWORD'), 'test_db')
+    
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_cursor.fetchall.return_value = [('time_zone', 'Asia/Shanghai')]
+    mock_connection.cursor.return_value = mock_cursor
+    mocker.patch('mysql.connector.connect', return_value=mock_connection)
+    
+    tz1 = conn.timezone
+    tz2 = conn.timezone
+    
+    assert tz1 == 'Asia/Shanghai'
+    assert tz2 == 'Asia/Shanghai'
+    assert mock_cursor.execute.call_count == 1
+    assert mock_cursor.fetchall.call_count == 1
+
+
+def test_should_cache_timezone_after_first_query(mocker, setup_password_env):
+    """Test that timezone is cached after first query."""
+    conn = db.StarRocksDB('localhost', 9030, 'root', os.getenv('STARROCKS_PASSWORD'), 'test_db')
+    
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_cursor.fetchall.return_value = [('time_zone', 'UTC')]
+    mock_connection.cursor.return_value = mock_cursor
+    mocker.patch('mysql.connector.connect', return_value=mock_connection)
+    
+    for _ in range(5):
+        _ = conn.timezone
+    
+    assert mock_cursor.execute.call_count == 1
+
+
+def test_should_handle_empty_timezone_query_result(mocker, setup_password_env):
+    """Test that timezone defaults to UTC when query returns no results."""
+    conn = db.StarRocksDB('localhost', 9030, 'root', os.getenv('STARROCKS_PASSWORD'), 'test_db')
+    
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_cursor.fetchall.return_value = []
+    mock_connection.cursor.return_value = mock_cursor
+    mocker.patch('mysql.connector.connect', return_value=mock_connection)
+    
+    tz = conn.timezone
+    
+    assert tz == 'UTC'
+
+
+def test_should_handle_dict_result_from_timezone_query(mocker, setup_password_env):
+    """Test that timezone property handles dict results from query."""
+    conn = db.StarRocksDB('localhost', 9030, 'root', os.getenv('STARROCKS_PASSWORD'), 'test_db')
+    
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_cursor.fetchall.return_value = [{'Variable_name': 'time_zone', 'Value': 'America/New_York'}]
+    mock_connection.cursor.return_value = mock_cursor
+    mocker.patch('mysql.connector.connect', return_value=mock_connection)
+    
+    tz = conn.timezone
+    
+    assert tz == 'America/New_York'
+
+
+def test_should_handle_offset_timezone_string(mocker, setup_password_env):
+    """Test that timezone property handles offset timezone strings."""
+    conn = db.StarRocksDB('localhost', 9030, 'root', os.getenv('STARROCKS_PASSWORD'), 'test_db')
+    
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_cursor.fetchall.return_value = [('time_zone', '+08:00')]
+    mock_connection.cursor.return_value = mock_cursor
+    mocker.patch('mysql.connector.connect', return_value=mock_connection)
+    
+    tz = conn.timezone
+    
+    assert tz == '+08:00'
+
+
+def test_should_default_to_utc_when_timezone_query_fails(mocker, setup_password_env):
+    """Test that timezone property defaults to UTC when query raises an exception."""
+    conn = db.StarRocksDB('localhost', 9030, 'root', os.getenv('STARROCKS_PASSWORD'), 'test_db')
+    
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_cursor.fetchall.side_effect = Exception("Database connection error")
+    mock_connection.cursor.return_value = mock_cursor
+    mocker.patch('mysql.connector.connect', return_value=mock_connection)
+    
+    tz = conn.timezone
+    
+    assert tz == "UTC"
+
+
+def test_should_default_to_utc_when_timezone_query_raises_permission_error(mocker, setup_password_env):
+    """Test that timezone property defaults to UTC when query raises permission error."""
+    conn = db.StarRocksDB('localhost', 9030, 'root', os.getenv('STARROCKS_PASSWORD'), 'test_db')
+    
+    mock_connection = mocker.Mock()
+    mock_cursor = mocker.Mock()
+    mock_cursor.fetchall.side_effect = Exception("Access denied")
+    mock_connection.cursor.return_value = mock_cursor
+    mocker.patch('mysql.connector.connect', return_value=mock_connection)
+    
+    tz = conn.timezone
+    
+    assert tz == "UTC"
+
