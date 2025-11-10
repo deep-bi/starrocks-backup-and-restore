@@ -56,7 +56,17 @@ class StarRocksDB:
 
             conn_args.update({key: value for key, value in ssl_args.items() if value is not None})
 
-        self._connection = mysql.connector.connect(**conn_args)
+        try:
+            self._connection = mysql.connector.connect(**conn_args)
+        except mysql.connector.Error as e:
+            if self.tls_config.get('enabled') and "SSL is required" in str(e):
+                raise mysql.connector.Error(
+                    f"TLS is enabled in configuration but StarRocks server doesn't support it. "
+                    f"Error: {e}. "
+                    f"To fix this, you need to enable TLS/SSL in your StarRocks server configuration. "
+                    f"Alternatively, set 'enabled: false' in the tls section of your config file."
+                ) from e
+            raise
     
     def close(self) -> None:
         """Close database connection."""
