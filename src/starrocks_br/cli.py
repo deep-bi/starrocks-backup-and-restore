@@ -15,6 +15,40 @@ from . import schema
 from . import logger
 
 
+def _handle_snapshot_exists_error(error_details: dict, label: str, config: str, repository: str, backup_type: str, group: str, baseline_backup: str = None) -> None:
+    """Handle snapshot_exists error by providing helpful guidance to the user.
+    
+    Args:
+        error_details: Error details dict containing error_type and snapshot_name
+        label: The backup label that was generated
+        config: Path to config file
+        repository: Repository name
+        backup_type: Type of backup ('incremental' or 'full')
+        group: Inventory group name
+        baseline_backup: Optional baseline backup label (for incremental backups)
+    """
+    snapshot_name = error_details.get('snapshot_name', label)
+    logger.error(f"Snapshot '{snapshot_name}' already exists in the repository.")
+    logger.info("")
+    logger.info("This typically happens when:")
+    logger.info("  • The CLI lost connectivity during a previous backup operation")
+    logger.info("  • The backup completed on the server, but backup_history wasn't updated")
+    logger.info("")
+    logger.info("To resolve this, retry the backup with a custom label using --name:")
+    
+    if backup_type == 'incremental':
+        retry_cmd = f"  starrocks-br backup incremental --config {config} --group {group} --name {snapshot_name}_retry"
+        if baseline_backup:
+            retry_cmd += f" --baseline-backup {baseline_backup}"
+        logger.info(retry_cmd)
+    else:
+        logger.info(f"  starrocks-br backup full --config {config} --group {group} --name {snapshot_name}_retry")
+    
+    logger.info("")
+    logger.tip("You can verify the existing backup by checking the repository or running:")
+    logger.tip(f"  SHOW SNAPSHOT ON {repository} WHERE Snapshot = '{snapshot_name}'")
+
+
 @click.group()
 def cli():
     """StarRocks Backup & Restore automation tool."""
@@ -176,6 +210,13 @@ def backup_incremental(config, baseline_backup, group, name):
                 logger.success(f"Backup completed successfully: {result['final_status']['state']}")
                 sys.exit(0)
             else:
+                error_details = result.get('error_details')
+                if error_details and error_details.get('error_type') == 'snapshot_exists':
+                    _handle_snapshot_exists_error(
+                        error_details, label, config, cfg['repository'], 'incremental', group, baseline_backup
+                    )
+                    sys.exit(1)
+                
                 state = result.get('final_status', {}).get('state', 'UNKNOWN')
                 if state == "LOST":
                     logger.critical("Backup tracking lost!")
@@ -277,6 +318,13 @@ def backup_full(config, group, name):
                 logger.success(f"Backup completed successfully: {result['final_status']['state']}")
                 sys.exit(0)
             else:
+                error_details = result.get('error_details')
+                if error_details and error_details.get('error_type') == 'snapshot_exists':
+                    _handle_snapshot_exists_error(
+                        error_details, label, config, cfg['repository'], 'full', group
+                    )
+                    sys.exit(1)
+                
                 state = result.get('final_status', {}).get('state', 'UNKNOWN')
                 if state == "LOST":
                     logger.critical("Backup tracking lost!")

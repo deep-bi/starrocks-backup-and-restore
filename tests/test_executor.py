@@ -20,10 +20,11 @@ def test_should_submit_backup_command_successfully(mocker):
     TO my_repo
     ON (TABLE sales_db.dim_customers)"""
     
-    success, error = executor.submit_backup_command(db, backup_command)
+    success, error, error_details = executor.submit_backup_command(db, backup_command)
     
     assert success is True
     assert error is None
+    assert error_details is None
     assert db.execute.call_count == 1
     assert db.execute.call_args[0][0] == backup_command.strip()
 
@@ -34,13 +35,102 @@ def test_should_handle_backup_command_execution_error(mocker):
     
     backup_command = "BACKUP SNAPSHOT test TO repo"
     
-    success, error = executor.submit_backup_command(db, backup_command)
+    success, error, error_details = executor.submit_backup_command(db, backup_command)
     
     assert success is False
     assert error is not None
+    assert error_details is None
     assert "Failed to submit backup command" in error
     assert "Exception" in error
     assert "Database error" in error
+
+
+def test_should_detect_snapshot_exists_error_with_code_5064(mocker):
+    """Test that snapshot exists error is detected when error code 5064 is present."""
+    db = mocker.Mock()
+    error = Exception("ProgrammingError: 5064 (42000): Snapshot with name 'test_backup_20251015' already exist in repository")
+    error.errno = 5064
+    db.execute.side_effect = error
+    
+    backup_command = "BACKUP DATABASE test_db SNAPSHOT test_backup_20251015 TO repo"
+    
+    success, error_msg, error_details = executor.submit_backup_command(db, backup_command)
+    
+    assert success is False
+    assert error_details is not None
+    assert error_details['error_type'] == 'snapshot_exists'
+    assert error_details['snapshot_name'] == 'test_backup_20251015'
+    assert "already exists in repository" in error_msg
+
+
+def test_should_detect_snapshot_exists_error_from_message(mocker):
+    """Test that snapshot exists error is detected from error message pattern."""
+    db = mocker.Mock()
+    error = Exception("ProgrammingError: 5064 (42000): Snapshot with name 'quickstart_20251110_incremental_r2' already exist in repository")
+    db.execute.side_effect = error
+    
+    backup_command = "BACKUP DATABASE quickstart SNAPSHOT quickstart_20251110_incremental_r2 TO repo"
+    
+    success, error_msg, error_details = executor.submit_backup_command(db, backup_command)
+    
+    assert success is False
+    assert error_details is not None
+    assert error_details['error_type'] == 'snapshot_exists'
+    assert error_details['snapshot_name'] == 'quickstart_20251110_incremental_r2'
+    assert "already exists in repository" in error_msg
+
+
+def test_should_detect_snapshot_exists_error_case_insensitive(mocker):
+    """Test that snapshot exists error detection is case-insensitive."""
+    db = mocker.Mock()
+    error = Exception("ProgrammingError: 5064 (42000): Snapshot with name 'MY_BACKUP' already EXISTS in repository")
+    db.execute.side_effect = error
+    
+    backup_command = "BACKUP DATABASE test_db SNAPSHOT MY_BACKUP TO repo"
+    
+    success, error_msg, error_details = executor.submit_backup_command(db, backup_command)
+    
+    assert success is False
+    assert error_details is not None
+    assert error_details['error_type'] == 'snapshot_exists'
+    assert error_details['snapshot_name'] == 'MY_BACKUP'
+
+
+def test_should_not_detect_snapshot_exists_for_other_errors(mocker):
+    """Test that other errors don't trigger snapshot_exists detection."""
+    db = mocker.Mock()
+    db.execute.side_effect = Exception("Connection timeout")
+    
+    backup_command = "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo"
+    
+    success, error_msg, error_details = executor.submit_backup_command(db, backup_command)
+    
+    assert success is False
+    assert error_details is None
+    assert "Connection timeout" in error_msg
+
+
+def test_should_handle_snapshot_exists_error_in_execute_backup(mocker, db_with_timezone):
+    """Test that execute_backup properly handles snapshot_exists error."""
+    db = db_with_timezone
+    error = Exception("ProgrammingError: 5064 (42000): Snapshot with name 'test_backup' already exist in repository")
+    db.execute.side_effect = error
+    
+    backup_command = "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo"
+    
+    result = executor.execute_backup(
+        db,
+        backup_command,
+        repository="repo",
+        backup_type="full",
+        database="test_db"
+    )
+    
+    assert result['success'] is False
+    assert result['error_details'] is not None
+    assert result['error_details']['error_type'] == 'snapshot_exists'
+    assert result['error_details']['snapshot_name'] == 'test_backup'
+    assert result['final_status'] is None
 
 
 def test_should_poll_backup_status_until_finished(mocker):
@@ -278,10 +368,11 @@ def test_should_handle_backup_command_execution_with_whitespace():
     db.execute.return_value = None
     
     command_with_whitespace = "   BACKUP SNAPSHOT test_backup TO repo   \n\n"
-    success, error = executor.submit_backup_command(db, command_with_whitespace)
+    success, error, error_details = executor.submit_backup_command(db, command_with_whitespace)
     
     assert success is True
     assert error is None
+    assert error_details is None
     assert db.execute.call_count == 1
     executed_command = db.execute.call_args[0][0]
     assert executed_command == "BACKUP SNAPSHOT test_backup TO repo"
@@ -610,10 +701,11 @@ def test_should_return_detailed_error_on_submit_failure(mocker):
     
     backup_command = "BACKUP DATABASE test_db SNAPSHOT test_backup TO repo"
     
-    success, error = executor.submit_backup_command(db, backup_command)
+    success, error, error_details = executor.submit_backup_command(db, backup_command)
     
     assert success is False
     assert error is not None
+    assert error_details is None
     assert "RuntimeError" in error
     assert "Connection timeout after 30 seconds" in error
     assert "Failed to submit backup command" in error
