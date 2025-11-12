@@ -324,6 +324,105 @@ def test_restore_with_group_filter(config_file, mock_db, setup_password_env, moc
     assert 'Restore completed successfully' in result.output
 
 
+def test_restore_with_table_filter(config_file, mock_db, setup_password_env, mocker):
+    """Test restore command with table filter."""
+    runner = CliRunner()
+    
+    get_tables_mock = mocker.patch('starrocks_br.restore.get_tables_from_backup', return_value=['test_db.fact_table'])
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.restore.find_restore_pair', return_value=['test_backup'])
+    mocker.patch('starrocks_br.restore.execute_restore_flow', return_value={
+        'success': True,
+        'message': 'Restore completed successfully. Restored 1 tables.'
+    })
+    mocker.patch('builtins.input', return_value='y')
+    
+    result = runner.invoke(cli.cli, [
+        'restore',
+        '--config', config_file,
+        '--target-label', 'test_backup',
+        '--table', 'fact_table'
+    ])
+    
+    assert result.exit_code == 0
+    assert 'Restore completed successfully' in result.output
+    get_tables_mock.assert_called_once()
+    call_args = get_tables_mock.call_args
+    assert call_args[1]['table'] == 'fact_table'
+    assert call_args[1]['database'] == 'test_db'
+
+
+def test_restore_with_table_and_group_should_fail(config_file, mock_db, setup_password_env, mocker):
+    """Test that restore command fails when both --table and --group are specified."""
+    runner = CliRunner()
+    
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    
+    result = runner.invoke(cli.cli, [
+        'restore',
+        '--config', config_file,
+        '--target-label', 'test_backup',
+        '--table', 'fact_table',
+        '--group', 'daily_incremental'
+    ])
+    
+    assert result.exit_code == 1
+    assert 'Cannot specify both --group and --table' in result.output
+
+
+def test_restore_with_table_containing_dot_should_fail(config_file, mock_db, setup_password_env, mocker):
+    """Test that restore command fails when table name contains a dot."""
+    runner = CliRunner()
+    
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    
+    result = runner.invoke(cli.cli, [
+        'restore',
+        '--config', config_file,
+        '--target-label', 'test_backup',
+        '--table', 'db.fact_table'
+    ])
+    
+    assert result.exit_code == 1
+    assert 'Table name must not include database prefix' in result.output
+
+
+def test_restore_with_empty_table_name_should_fail(config_file, mock_db, setup_password_env, mocker):
+    """Test that restore command fails when table name is empty."""
+    runner = CliRunner()
+    
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    
+    result = runner.invoke(cli.cli, [
+        'restore',
+        '--config', config_file,
+        '--target-label', 'test_backup',
+        '--table', '   '
+    ])
+    
+    assert result.exit_code == 1
+    assert 'Table name cannot be empty' in result.output
+
+
+def test_restore_with_table_not_found_in_backup(config_file, mock_db, setup_password_env, mocker):
+    """Test that restore command fails when table is not found in backup."""
+    runner = CliRunner()
+    
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.restore.find_restore_pair', return_value=['test_backup'])
+    mocker.patch('starrocks_br.restore.get_tables_from_backup', side_effect=ValueError("Table 'nonexistent_table' not found in backup 'test_backup' for database 'test_db'"))
+    
+    result = runner.invoke(cli.cli, [
+        'restore',
+        '--config', config_file,
+        '--target-label', 'test_backup',
+        '--table', 'nonexistent_table'
+    ])
+    
+    assert result.exit_code == 1
+    assert "Table 'nonexistent_table' not found in backup" in result.output
+
+
 def test_cli_exception_handling_file_not_found():
     """Test CLI exception handling for FileNotFoundError"""
     runner = CliRunner()

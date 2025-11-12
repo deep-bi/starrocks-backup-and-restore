@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional
+import datetime
 
-from starrocks_br import logger
+from starrocks_br import logger, timezone
 
 
 def find_latest_full_backup(db, database: str) -> Optional[Dict[str, str]]:
@@ -11,7 +12,8 @@ def find_latest_full_backup(db, database: str) -> Optional[Dict[str, str]]:
         database: Database name to search for
         
     Returns:
-        Dictionary with keys: label, backup_type, finished_at, or None if no full backup found
+        Dictionary with keys: label, backup_type, finished_at, or None if no full backup found.
+        The finished_at value is returned as a string in the cluster timezone format.
     """
     query = f"""
     SELECT label, backup_type, finished_at
@@ -29,10 +31,18 @@ def find_latest_full_backup(db, database: str) -> Optional[Dict[str, str]]:
         return None
     
     row = rows[0]
+    finished_at = row[2]
+    
+    if isinstance(finished_at, datetime.datetime):
+        cluster_tz = db.timezone
+        finished_at = finished_at.strftime("%Y-%m-%d %H:%M:%S")
+    elif not isinstance(finished_at, str):
+        finished_at = str(finished_at)
+    
     return {
         "label": row[0],
         "backup_type": row[1],
-        "finished_at": row[2]
+        "finished_at": finished_at
     }
 
 
@@ -66,6 +76,8 @@ def find_recent_partitions(db, database: str, baseline_backup_label: Optional[st
     Returns list of dictionaries with keys: database, table, partition_name.
     Only partitions of tables within the specified database are returned.
     """
+    cluster_tz = db.timezone
+    
     if baseline_backup_label:
         baseline_query = f"""
         SELECT finished_at
@@ -76,17 +88,21 @@ def find_recent_partitions(db, database: str, baseline_backup_label: Optional[st
         baseline_rows = db.query(baseline_query)
         if not baseline_rows:
             raise ValueError(f"Baseline backup '{baseline_backup_label}' not found or not successful")
-        baseline_time = baseline_rows[0][0]
+        baseline_time_raw = baseline_rows[0][0]
     else:
         latest_backup = find_latest_full_backup(db, database)
         if not latest_backup:
             raise ValueError(f"No successful full backup found for database '{database}'. Run a full database backup first.")
-        baseline_time = latest_backup['finished_at']
+        baseline_time_raw = latest_backup['finished_at']
     
-    if isinstance(baseline_time, str):
-        threshold_str = baseline_time
+    if isinstance(baseline_time_raw, datetime.datetime):
+        baseline_time_str = baseline_time_raw.strftime("%Y-%m-%d %H:%M:%S")
+    elif isinstance(baseline_time_raw, str):
+        baseline_time_str = baseline_time_raw
     else:
-        threshold_str = baseline_time.strftime("%Y-%m-%d %H:%M:%S")
+        baseline_time_str = str(baseline_time_raw)
+    
+    baseline_dt = timezone.parse_datetime_with_tz(baseline_time_str, cluster_tz)
     
     group_tables = find_tables_by_group(db, group_name)
 
@@ -129,12 +145,16 @@ def find_recent_partitions(db, database: str, baseline_backup_label: Optional[st
             partition_name = row[1]
             visible_version_time = row[3]
 
-            if isinstance(visible_version_time, str):
-                version_time_str = visible_version_time
+            if isinstance(visible_version_time, datetime.datetime):
+                visible_version_time_str = visible_version_time.strftime("%Y-%m-%d %H:%M:%S")
+            elif isinstance(visible_version_time, str):
+                visible_version_time_str = visible_version_time
             else:
-                version_time_str = visible_version_time.strftime("%Y-%m-%d %H:%M:%S")
+                visible_version_time_str = str(visible_version_time)
             
-            if version_time_str > threshold_str:
+            visible_version_dt = timezone.parse_datetime_with_tz(visible_version_time_str, cluster_tz)
+            
+            if visible_version_dt > baseline_dt:
                 recent_partitions.append({
                     'database': db_name,
                     'table': table_name,

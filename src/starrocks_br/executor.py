@@ -1,23 +1,68 @@
 import time
 import datetime
-from typing import Dict, Literal, Optional
-from . import history, concurrency, logger
+import re
+from typing import Dict, Literal, Optional, Tuple
+from . import history, concurrency, logger, timezone
 
-MAX_POLLS = 21600 # 6 hours
+MAX_POLLS = 86400 # 1 day
 
-def submit_backup_command(db, backup_command: str) -> tuple[bool, Optional[str]]:
+def submit_backup_command(db, backup_command: str) -> Tuple[bool, Optional[str], Optional[Dict[str, str]]]:
     """Submit a backup command to StarRocks.
     
-    Returns (success, error_message).
+    Returns (success, error_message, error_details).
+    error_details is a dict with keys like 'error_type' and 'snapshot_name' for specific error cases.
     """
     try:
         db.execute(backup_command.strip())
-        return True, None
+        return True, None, None
     except Exception as e:
-        error_msg = f"Failed to submit backup command: {type(e).__name__}: {str(e)}"
+        error_str = str(e)
+        error_type = type(e).__name__
+        
+        snapshot_exists_match = _check_snapshot_exists_error(e, error_str)
+        if snapshot_exists_match:
+            snapshot_name = snapshot_exists_match
+            error_details = {
+                'error_type': 'snapshot_exists',
+                'snapshot_name': snapshot_name
+            }
+            error_msg = f"Snapshot '{snapshot_name}' already exists in repository"
+            logger.error(error_msg)
+            logger.error(f"backup_command: {backup_command}")
+            return False, error_msg, error_details
+        
+        error_msg = f"Failed to submit backup command: {error_type}: {error_str}"
         logger.error(error_msg)
         logger.error(f"backup_command: {backup_command}")
-        return False, error_msg
+        return False, error_msg, None
+
+
+def _check_snapshot_exists_error(exception: Exception, error_str: str) -> Optional[str]:
+    """Check if the error is a 'snapshot already exists' error and extract snapshot name.
+    
+    Args:
+        exception: The exception that was raised
+        error_str: String representation of the error
+        
+    Returns:
+        Snapshot name if this is a snapshot exists error, None otherwise
+    """
+    snapshot_name_pattern = r"Snapshot with name '([^']+)' already exist"
+    error_lower = error_str.lower()
+    
+    is_snapshot_exists_error = (
+        "already exist" in error_lower or 
+        "already exists" in error_lower or
+        ("5064" in error_str and "already exist" in error_lower) or
+        (hasattr(exception, 'errno') and exception.errno == 5064)
+    )
+    
+    if is_snapshot_exists_error:
+        match = re.search(snapshot_name_pattern, error_str, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    
+    return None
 
 
 def poll_backup_status(db, label: str, database: str, max_polls: int = MAX_POLLS, poll_interval: float = 1.0) -> Dict[str, str]:
@@ -117,15 +162,19 @@ def execute_backup(
     if not database:
         database = _extract_database_from_command(backup_command)
 
-    started_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cluster_tz = db.timezone
+    started_at = timezone.get_current_time_in_cluster_tz(cluster_tz)
     
-    success, submit_error = submit_backup_command(db, backup_command)
+    success, submit_error, error_details = submit_backup_command(db, backup_command)
     if not success:
-        return {
+        result = {
             "success": False,
             "final_status": None,
             "error_message": submit_error or "Failed to submit backup command (unknown error)"
         }
+        if error_details:
+            result["error_details"] = error_details
+        return result
     
     try:
         final_status = poll_backup_status(db, label, database, max_polls, poll_interval)
@@ -133,6 +182,7 @@ def execute_backup(
         success = final_status["state"] == "FINISHED"
 
         try:
+            finished_at = timezone.get_current_time_in_cluster_tz(cluster_tz)
             history.log_backup(
                 db,
                 {
@@ -141,7 +191,7 @@ def execute_backup(
                     "status": final_status["state"],
                     "repository": repository,
                     "started_at": started_at,
-                    "finished_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "finished_at": finished_at,
                     "error_message": None if success else (final_status["state"] or ""),
                 },
             )

@@ -861,6 +861,106 @@ def test_should_return_empty_list_when_group_has_no_tables(mocker):
     assert result == []
 
 
+def test_should_get_tables_from_backup_with_table_filter(mocker):
+    """Test getting tables from backup with table filtering."""
+    db = mocker.Mock()
+    db.query.return_value = [
+        ("sales_db", "fact_sales"),
+        ("sales_db", "dim_customers"),
+        ("orders_db", "fact_orders"),
+    ]
+    
+    result = restore.get_tables_from_backup(
+        db, 
+        "sales_db_20251015_full", 
+        table="fact_sales", 
+        database="sales_db"
+    )
+    
+    assert result == ["sales_db.fact_sales"]
+    assert db.query.call_count == 1
+
+
+def test_should_raise_value_error_when_table_not_found_in_backup(mocker):
+    """Test that get_tables_from_backup raises ValueError when table is not found in backup."""
+    db = mocker.Mock()
+    db.query.return_value = [
+        ("sales_db", "fact_sales"),
+        ("sales_db", "dim_customers"),
+    ]
+    
+    with pytest.raises(ValueError, match="Table 'nonexistent_table' not found in backup"):
+        restore.get_tables_from_backup(
+            db, 
+            "sales_db_20251015_full", 
+            table="nonexistent_table", 
+            database="sales_db"
+        )
+
+
+def test_should_raise_value_error_when_table_and_group_both_specified(mocker):
+    """Test that get_tables_from_backup raises ValueError when both table and group are specified."""
+    db = mocker.Mock()
+    
+    with pytest.raises(ValueError, match="Cannot specify both --group and --table"):
+        restore.get_tables_from_backup(
+            db, 
+            "sales_db_20251015_full", 
+            group="daily_incremental",
+            table="fact_sales",
+            database="sales_db"
+        )
+
+
+def test_should_raise_value_error_when_table_specified_without_database(mocker):
+    """Test that get_tables_from_backup raises ValueError when table is specified without database."""
+    db = mocker.Mock()
+    
+    with pytest.raises(ValueError, match="database parameter is required when table is specified"):
+        restore.get_tables_from_backup(
+            db, 
+            "sales_db_20251015_full", 
+            table="fact_sales"
+        )
+
+
+def test_should_filter_table_by_database_when_multiple_databases_in_backup(mocker):
+    """Test that table filtering correctly filters by database when backup contains multiple databases."""
+    db = mocker.Mock()
+    db.query.return_value = [
+        ("sales_db", "users"),
+        ("orders_db", "users"),
+        ("sales_db", "products"),
+    ]
+    
+    result = restore.get_tables_from_backup(
+        db, 
+        "multi_db_backup", 
+        table="users", 
+        database="sales_db"
+    )
+    
+    assert result == ["sales_db.users"]
+    assert len(result) == 1
+
+
+def test_should_return_empty_list_when_table_not_in_specified_database(mocker):
+    """Test that get_tables_from_backup returns empty list when table exists but in different database."""
+    db = mocker.Mock()
+    db.query.return_value = [
+        ("sales_db", "fact_sales"),
+        ("orders_db", "fact_orders"),
+    ]
+    
+    with pytest.raises(ValueError, match="Table 'fact_orders' not found in backup"):
+        restore.get_tables_from_backup(
+            db, 
+            "multi_db_backup", 
+            table="fact_orders", 
+            database="sales_db"
+        )
+
+
 def test_should_build_restore_command_with_rename():
     """Test building restore command with AS clause for temporary tables."""
     backup_label = "sales_db_20251015_full"

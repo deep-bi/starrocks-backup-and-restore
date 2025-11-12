@@ -1,8 +1,8 @@
 import yaml
-from typing import Dict
+from typing import Any, Dict, Optional
 
 
-def load_config(config_path: str) -> Dict:
+def load_config(config_path: str) -> Dict[str, Any]:
     """Load and parse YAML configuration file.
     
     Args:
@@ -24,7 +24,7 @@ def load_config(config_path: str) -> Dict:
     return config
 
 
-def validate_config(config: Dict) -> None:
+def validate_config(config: Dict[str, Any]) -> None:
     """Validate that config contains required fields.
     
     Args:
@@ -38,4 +38,27 @@ def validate_config(config: Dict) -> None:
     for field in required_fields:
         if field not in config:
             raise ValueError(f"Missing required config field: {field}")
+
+    _validate_tls_section(config.get('tls'))
+
+
+def _validate_tls_section(tls_config) -> None:
+    if tls_config is None:
+        return
+
+    if not isinstance(tls_config, dict):
+        raise ValueError("TLS configuration must be a dictionary")
+
+    enabled = bool(tls_config.get('enabled', False))
+
+    if enabled and not tls_config.get('ca_cert'):
+        raise ValueError("TLS configuration requires 'ca_cert' when 'enabled' is true")
+
+    if 'verify_server_cert' in tls_config and not isinstance(tls_config['verify_server_cert'], bool):
+        raise ValueError("TLS configuration field 'verify_server_cert' must be a boolean if provided")
+
+    if 'tls_versions' in tls_config:
+        tls_versions = tls_config['tls_versions']
+        if not isinstance(tls_versions, list) or not all(isinstance(version, str) for version in tls_versions):
+            raise ValueError("TLS configuration field 'tls_versions' must be a list of strings if provided")
 

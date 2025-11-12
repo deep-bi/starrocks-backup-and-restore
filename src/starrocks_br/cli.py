@@ -15,6 +15,40 @@ from . import schema
 from . import logger
 
 
+def _handle_snapshot_exists_error(error_details: dict, label: str, config: str, repository: str, backup_type: str, group: str, baseline_backup: str = None) -> None:
+    """Handle snapshot_exists error by providing helpful guidance to the user.
+    
+    Args:
+        error_details: Error details dict containing error_type and snapshot_name
+        label: The backup label that was generated
+        config: Path to config file
+        repository: Repository name
+        backup_type: Type of backup ('incremental' or 'full')
+        group: Inventory group name
+        baseline_backup: Optional baseline backup label (for incremental backups)
+    """
+    snapshot_name = error_details.get('snapshot_name', label)
+    logger.error(f"Snapshot '{snapshot_name}' already exists in the repository.")
+    logger.info("")
+    logger.info("This typically happens when:")
+    logger.info("  • The CLI lost connectivity during a previous backup operation")
+    logger.info("  • The backup completed on the server, but backup_history wasn't updated")
+    logger.info("")
+    logger.info("To resolve this, retry the backup with a custom label using --name:")
+    
+    if backup_type == 'incremental':
+        retry_cmd = f"  starrocks-br backup incremental --config {config} --group {group} --name {snapshot_name}_retry"
+        if baseline_backup:
+            retry_cmd += f" --baseline-backup {baseline_backup}"
+        logger.info(retry_cmd)
+    else:
+        logger.info(f"  starrocks-br backup full --config {config} --group {group} --name {snapshot_name}_retry")
+    
+    logger.info("")
+    logger.tip("You can verify the existing backup by checking the repository or running:")
+    logger.tip(f"  SHOW SNAPSHOT ON {repository} WHERE Snapshot = '{snapshot_name}'")
+
+
 @click.group()
 def cli():
     """StarRocks Backup & Restore automation tool."""
@@ -43,7 +77,8 @@ def init(config):
             port=cfg['port'],
             user=cfg['user'],
             password=os.getenv('STARROCKS_PASSWORD'),
-            database=cfg['database']
+            database=cfg['database'],
+            tls_config=cfg.get('tls'),
         )
         
         with database:
@@ -102,7 +137,8 @@ def backup_incremental(config, baseline_backup, group, name):
             port=cfg['port'],
             user=cfg['user'],
             password=os.getenv('STARROCKS_PASSWORD'),
-            database=cfg['database']
+            database=cfg['database'],
+            tls_config=cfg.get('tls'),
         )
         
         with database:
@@ -174,6 +210,13 @@ def backup_incremental(config, baseline_backup, group, name):
                 logger.success(f"Backup completed successfully: {result['final_status']['state']}")
                 sys.exit(0)
             else:
+                error_details = result.get('error_details')
+                if error_details and error_details.get('error_type') == 'snapshot_exists':
+                    _handle_snapshot_exists_error(
+                        error_details, label, config, cfg['repository'], 'incremental', group, baseline_backup
+                    )
+                    sys.exit(1)
+                
                 state = result.get('final_status', {}).get('state', 'UNKNOWN')
                 if state == "LOST":
                     logger.critical("Backup tracking lost!")
@@ -215,7 +258,8 @@ def backup_full(config, group, name):
             port=cfg['port'],
             user=cfg['user'],
             password=os.getenv('STARROCKS_PASSWORD'),
-            database=cfg['database']
+            database=cfg['database'],
+            tls_config=cfg.get('tls'),
         )
         
         with database:
@@ -274,6 +318,13 @@ def backup_full(config, group, name):
                 logger.success(f"Backup completed successfully: {result['final_status']['state']}")
                 sys.exit(0)
             else:
+                error_details = result.get('error_details')
+                if error_details and error_details.get('error_type') == 'snapshot_exists':
+                    _handle_snapshot_exists_error(
+                        error_details, label, config, cfg['repository'], 'full', group
+                    )
+                    sys.exit(1)
+                
                 state = result.get('final_status', {}).get('state', 'UNKNOWN')
                 if state == "LOST":
                     logger.critical("Backup tracking lost!")
@@ -300,8 +351,9 @@ def backup_full(config, group, name):
 @click.option('--config', required=True, help='Path to config YAML file')
 @click.option('--target-label', required=True, help='Backup label to restore to')
 @click.option('--group', help='Optional inventory group to filter tables to restore')
+@click.option('--table', help='Optional table name to restore (table name only, database comes from config). Cannot be used with --group.')
 @click.option('--rename-suffix', default='_restored', help='Suffix for temporary tables during restore (default: _restored)')
-def restore_command(config, target_label, group, rename_suffix):
+def restore_command(config, target_label, group, table, rename_suffix):
     """Restore data to a specific point in time using intelligent backup chain resolution.
     
     This command automatically determines the correct sequence of backups needed for restore:
@@ -314,6 +366,20 @@ def restore_command(config, target_label, group, rename_suffix):
     Flow: load config → find restore pair → get tables from backup → execute restore flow
     """
     try:
+        if group and table:
+            logger.error("Cannot specify both --group and --table. Use --table for single table restore or --group for inventory group restore.")
+            sys.exit(1)
+        
+        if table:
+            table = table.strip()
+            if not table:
+                logger.error("Table name cannot be empty")
+                sys.exit(1)
+            
+            if '.' in table:
+                logger.error("Table name must not include database prefix. Use 'table_name' not 'database.table_name'. Database comes from config file.")
+                sys.exit(1)
+        
         cfg = config_module.load_config(config)
         config_module.validate_config(cfg)
         
@@ -322,7 +388,8 @@ def restore_command(config, target_label, group, rename_suffix):
             port=cfg['port'],
             user=cfg['user'],
             password=os.getenv('STARROCKS_PASSWORD'),
-            database=cfg['database']
+            database=cfg['database'],
+            tls_config=cfg.get('tls'),
         )
         
         with database:
@@ -342,11 +409,24 @@ def restore_command(config, target_label, group, rename_suffix):
                 sys.exit(1)
             
             logger.info("Determining tables to restore from backup manifest...")
-            tables_to_restore = restore.get_tables_from_backup(database, target_label, group)
+            
+            try:
+                tables_to_restore = restore.get_tables_from_backup(
+                    database, 
+                    target_label, 
+                    group=group, 
+                    table=table, 
+                    database=cfg['database'] if table else None
+                )
+            except ValueError as e:
+                logger.error(str(e))
+                sys.exit(1)
             
             if not tables_to_restore:
                 if group:
                     logger.warning(f"No tables found in backup '{target_label}' for group '{group}'")
+                elif table:
+                    logger.warning(f"No tables found in backup '{target_label}' for table '{table}'")
                 else:
                     logger.warning(f"No tables found in backup '{target_label}'")
                 sys.exit(1)

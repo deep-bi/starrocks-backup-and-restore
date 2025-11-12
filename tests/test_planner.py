@@ -5,6 +5,7 @@ from starrocks_br import planner
 def test_should_find_latest_full_backup(mocker):
     """Test finding the latest successful full backup."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.return_value = [
         ("test_db_20251015_full", "full", "2025-10-15 10:00:00")
     ]
@@ -36,6 +37,7 @@ def test_should_return_none_when_no_full_backup_found(mocker):
 def test_should_find_partitions_with_specific_baseline_backup(mocker):
     """Test finding partitions with a specific baseline backup."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.side_effect = [
         [("2025-10-10 10:00:00",)],
         [("sales_db", "fact_sales")],
@@ -58,6 +60,7 @@ def test_should_find_partitions_with_specific_baseline_backup(mocker):
 def test_should_fail_when_no_full_backup_found(mocker):
     """Test that find_recent_partitions fails when no full backup is found."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.return_value = []
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value=None)
@@ -69,6 +72,7 @@ def test_should_fail_when_no_full_backup_found(mocker):
 def test_should_fail_when_invalid_baseline_backup(mocker):
     """Test that find_recent_partitions fails when baseline backup is invalid."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.return_value = []
     
     with pytest.raises(ValueError, match="Baseline backup 'invalid_backup' not found"):
@@ -78,6 +82,7 @@ def test_should_fail_when_invalid_baseline_backup(mocker):
 def test_should_find_partitions_updated_since_latest_full_backup(mocker):
     """Test finding partitions updated since the latest full backup."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.side_effect = [
         [("sales_db", "fact_sales"), ("orders_db", "fact_orders")],
         [("PartitionId", "p20251015", "VisibleVersion", "2025-10-15 12:00:00", "VisibleVersionHash"),
@@ -133,6 +138,7 @@ def test_should_handle_single_partition():
 def test_should_format_date_correctly_in_query(mocker):
     """Test that the query uses the correct baseline time format and SHOW PARTITIONS command."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.side_effect = [
         [("sales_db", "fact_sales")],
         [],
@@ -253,6 +259,7 @@ def test_should_return_empty_list_when_group_not_found(mocker):
 def test_should_find_recent_partitions_with_group_filtering(mocker):
     """Test finding recent partitions filtered by inventory group."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.side_effect = [
         [("sales_db", "fact_sales"), ("orders_db", "fact_orders")],
         [("PartitionId", "p20251015", "VisibleVersion", "2025-10-15 12:00:00", "VisibleVersionHash")],
@@ -274,6 +281,7 @@ def test_should_find_recent_partitions_with_group_filtering(mocker):
 def test_should_handle_no_recent_partitions_with_group_filtering(mocker):
     """Test handling when no recent partitions exist for group tables."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.side_effect = [
         [("sales_db", "fact_sales")],
         [("PartitionId", "p20251005", "VisibleVersion", "2025-10-05 12:00:00", "VisibleVersionHash")],  # Old partition (before baseline)
@@ -294,6 +302,7 @@ def test_should_handle_no_recent_partitions_with_group_filtering(mocker):
 def test_should_return_empty_partitions_when_no_group_tables(mocker):
     """Test that find_recent_partitions returns empty when no tables in group."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.return_value = []
     
     mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
@@ -416,6 +425,7 @@ def test_should_return_empty_list_when_no_tables_for_database_in_get_all_partiti
 def test_find_recent_partitions_handles_wildcard_group(mocker):
     """Test that find_recent_partitions correctly handles wildcard table groups."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.side_effect = [
         [("sales_db", "*")],
         [("fact_sales",), ("dim_customers",)],
@@ -448,6 +458,7 @@ def test_find_recent_partitions_handles_wildcard_group(mocker):
 def test_find_recent_partitions_with_multiple_tables_mixed_timestamps(mocker):
     """Test finding recent partitions across multiple tables with mixed old and new partitions."""
     db = mocker.Mock()
+    db.timezone = "UTC"
     db.query.side_effect = [
         [("sales_db", "fact_sales"), ("sales_db", "fact_orders"), ("sales_db", "dim_products")],
         # SHOW PARTITIONS for fact_sales - mix of old and new partitions

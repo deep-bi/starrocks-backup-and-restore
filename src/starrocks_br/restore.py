@@ -3,7 +3,7 @@ import datetime
 from typing import Dict, List, Optional
 from . import history, concurrency, logger
 
-MAX_POLLS = 21600 # 6 hours
+MAX_POLLS = 86400 # 1 day
 
 def get_snapshot_timestamp(db, repo_name: str, snapshot_name: str) -> str:
     """Get the backup timestamp for a specific snapshot from the repository.
@@ -281,17 +281,30 @@ def find_restore_pair(db, target_label: str) -> List[str]:
     raise ValueError(f"Unknown backup type '{target_info['backup_type']}' for label '{target_label}'")
 
 
-def get_tables_from_backup(db, label: str, group: Optional[str] = None) -> List[str]:
+def get_tables_from_backup(db, label: str, group: Optional[str] = None, table: Optional[str] = None, database: Optional[str] = None) -> List[str]:
     """Get list of tables to restore from backup manifest.
     
     Args:
         db: Database connection
         label: Backup label
         group: Optional inventory group to filter tables
+        table: Optional table name to filter (single table, database comes from database parameter)
+        database: Database name (required if table is specified)
         
     Returns:
-        List of table names to restore
+        List of table names to restore (format: database.table)
+        
+    Raises:
+        ValueError: If both group and table are specified
+        ValueError: If table is specified but database is not provided
+        ValueError: If table is specified but not found in backup
     """
+    if group and table:
+        raise ValueError("Cannot specify both --group and --table. Use --table for single table restore or --group for inventory group restore.")
+    
+    if table and not database:
+        raise ValueError("database parameter is required when table is specified")
+    
     query = f"""
     SELECT DISTINCT database_name, table_name
     FROM ops.backup_partitions
@@ -304,6 +317,15 @@ def get_tables_from_backup(db, label: str, group: Optional[str] = None) -> List[
         return []
     
     tables = [f"{row[0]}.{row[1]}" for row in rows]
+    
+    if table:
+        target_table = f"{database}.{table}"
+        filtered_tables = [t for t in tables if t == target_table]
+        
+        if not filtered_tables:
+            raise ValueError(f"Table '{table}' not found in backup '{label}' for database '{database}'")
+        
+        return filtered_tables
     
     if group:
         group_query = f"""

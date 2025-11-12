@@ -4,27 +4,83 @@
 
 The StarRocks Backup & Restore tool provides production-grade automation for backup and restore operations.
 
+**Important:** This tool requires StarRocks 3.5 or later. Earlier versions are not supported due to differences in the `SHOW FRONTENDS` and `SHOW BACKENDS` command output formats, which are used for cluster health checks.
+
+## Summary
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+  - [Password Management](#password-management)
+  - [Connecting with TLS/SSL](#connecting-with-tlsssl)
+- [Commands](#commands)
+- [Example Usage Scenarios](#example-usage-scenarios)
+- [Error Handling](#error-handling)
+- [Monitoring](#monitoring)
+- [Testing](#testing)
+- [Project Status](#project-status)
+
 ## Installation
 
 ### Option 1: Install from PyPI (Recommended for Production)
 
-Install the package from PyPI using pip:
+We recommend using a virtual environment to ensure proper script availability and dependency isolation:
 
 ```bash
+# Create and activate a virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # On Linux/Mac
+# .venv\Scripts\activate    # On Windows
+
+# Install the package from PyPI
 pip install starrocks-br==0.1.0
-```
 
-Verify the installation:
-
-```bash
+# Verify the installation
 starrocks-br --help
 ```
 
-### Option 2: Using Devbox (Recommended for Development)
+**Note:** Always activate the virtual environment before using the tool. The `starrocks-br` command will only be available when the virtual environment is activated.
+
+### Option 2: Standalone Executable (Alternative if PyPI Installation Fails)
+
+If you encounter problems when installing via PyPI (often due to `mysql-connector-python` native extension issues), you can build a standalone executable that bundles all dependencies.
+
+**Note:** This requires cloning the repository first.
+
+```bash
+# Clone the repository
+git clone https://github.com/deep-bi/starrocks-br
+cd starrocks-br
+
+# Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # On Linux/Mac
+# .venv\Scripts\activate    # On Windows
+
+# Install dependencies
+pip install -e .
+
+# Build the standalone executable
+./build_executable.sh
+
+# The executable will be created in: dist/starrocks-br
+# You can now distribute or use this executable directly
+./dist/starrocks-br --help
+```
+
+**Note:** The executable is platform-specific. Build it on the same OS/architecture where you'll use it, or build it on the target machine.
+
+### Option 3: Using Devbox (Recommended for Development)
+
+**Note:** This requires cloning the repository first.
 
 Devbox provides a reproducible development environment with all required tools.
 
 ```bash
+# Clone the repository
+git clone https://github.com/deep-bi/starrocks-br
+cd starrocks-br
+
 # Install devbox (if not already installed)
 curl -fsSL https://get.jetpack.io/devbox | bash
 
@@ -40,11 +96,11 @@ starrocks-br --help
 pytest
 ```
 
-### Option 3: Manual Development Setup
+### Option 4: Manual Development Setup
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/deep-bi/starrocks-br
 cd starrocks-br
 
 # Create and activate virtual environment
@@ -61,24 +117,40 @@ pip install -e ".[dev]"
 
 After installing from PyPI, follow these steps:
 
-1. **Verify installation:**
+1. **Activate your virtual environment** (if not already active):
+   ```bash
+   source .venv/bin/activate  # On Linux/Mac
+   # .venv\Scripts\activate    # On Windows
+   ```
+
+2. **Verify installation:**
    ```bash
    starrocks-br --help
    ```
 
-2. **Create your `config.yaml` file** (see Configuration section below)
+3. **Create your `config.yaml` file** (see Configuration section below)
 
-3. **Set your password as an environment variable:**
+4. **Set your password as an environment variable:**
    ```bash
    export STARROCKS_PASSWORD="your_password"
    ```
+   
+   On Windows (PowerShell):
+   ```powershell
+   $env:STARROCKS_PASSWORD="your_password"
+   ```
+   
+   On Windows (Command Prompt):
+   ```cmd
+   set STARROCKS_PASSWORD=your_password
+   ```
 
-4. **Initialize the ops schema:**
+5. **Initialize the ops schema:**
    ```bash
    starrocks-br init --config config.yaml
    ```
 
-5. **Start using the tool** - see Commands section below for details
+6. **Start using the tool** - see Commands section below for details
 
 ## Configuration
 
@@ -101,6 +173,53 @@ The database password must be provided via the `STARROCKS_PASSWORD` environment 
 ```bash
 export STARROCKS_PASSWORD="your_password"
 ```
+
+### Connecting with TLS/SSL
+
+The tool can make secure connections to StarRocks using TLS. Add an optional `tls` section to your `config.yaml` when you need encryption.
+
+#### Scenario 1: Server Authentication (Most Common)
+
+Use this setup when the client only needs to verify the StarRocks server certificate.
+
+```yaml
+host: "127.0.0.1"
+port: 9030
+user: "root"
+database: "your_database"
+repository: "your_repo_name"
+
+tls:
+  enabled: true
+  ca_cert: "/path/to/ca.pem"
+```
+
+- `enabled`: Turns TLS on or off.
+- `ca_cert`: Certificate Authority file used to validate the server certificate.
+- `verify_server_cert` (optional, default `true`): Disable only if you need to skip certificate validation.
+
+#### Scenario 2: Mutual TLS (mTLS)
+
+Use this when both the client and server must present certificates.
+
+```yaml
+host: "127.0.0.1"
+port: 9030
+user: "root"
+database: "your_database"
+repository: "your_repo_name"
+
+tls:
+  enabled: true
+  ca_cert: "/path/to/ca.pem"
+  client_cert: "/path/to/client-cert.pem"
+  client_key: "/path/to/client-key.pem"
+```
+
+- `client_cert`: Client certificate presented to the server.
+- `client_key`: Private key paired with the client certificate.
+
+Regardless of the scenario, the connection defaults to modern TLS versions (`TLSv1.2`, `TLSv1.3`). Provide a `tls_versions` list if you need different protocol settings.
 
 **Note:** The repository must be created in StarRocks using the `CREATE REPOSITORY` command before running backups. For example:
 
@@ -160,7 +279,7 @@ starrocks-br backup full --config config.yaml --group <group_name>
 **Parameters:**
 - `--group`: The inventory group to back up.
 
-**Flow:**
+**Internal flow:**
 1. Load config → verify cluster health → ensure repository exists
 2. Reserve job slot (prevent concurrent backups)
 3. Query `ops.table_inventory` for all tables in the specified group.
@@ -180,7 +299,7 @@ starrocks-br backup incremental --config config.yaml --group <group_name>
 - `--group`: The inventory group to back up.
 - `--baseline-backup` (Optional): Specify a backup label to use as the baseline instead of the latest full backup.
 
-**Flow:**
+**Internal flow:**
 1. Load config → verify cluster health → ensure repository exists
 2. Reserve job slot
 3. Find the latest successful full backup for the group to use as a baseline.
@@ -206,7 +325,8 @@ starrocks-br restore \
 **Parameters:**
 - `--config`: Path to config YAML file (required)
 - `--target-label`: Backup label to restore to (required)
-- `--group`: Optional inventory group to filter tables to restore
+- `--group`: Optional inventory group to filter tables to restore (cannot be used with `--table`)
+- `--table`: Optional table name to restore (table name only, database comes from config). Cannot be used with `--group`
 - `--rename-suffix`: Suffix for temporary tables during restore (default: `_restored`)
 
 **How it works:**
@@ -214,14 +334,18 @@ starrocks-br restore \
 - **For incremental backups**: Automatically restores the base full backup first, then applies the incremental
 - **Safety mechanism**: Uses temporary tables with the specified suffix, then performs atomic rename to make restored data live
 
-**Two Restore Modes:**
-- **Disaster Recovery**: Restore all tables from a backup (omit `--group` parameter)
-- **Surgical Restore**: Restore only specific table groups (use `--group` parameter)
+**Three Restore Modes:**
+- **Disaster Recovery**: Restore all tables from a backup (omit both `--group` and `--table` parameters)
+- **Surgical Restore by Group**: Restore only specific table groups (use `--group` parameter)
+- **Single Table Restore**: Restore a specific table (use `--table` parameter). The table name should not include the database prefix - the database comes from the config file.
+
+**Table Name Format:**
+When using `--table`, provide only the table name (e.g., `fact_sales`), not `database.table_name`. The database is taken from the `database` field in your config file. For multiple tables, set up an inventory group and use `--group` instead.
 
 **Purpose of `--rename-suffix`:**
 The restore process creates temporary tables with the specified suffix (e.g., `table_restored`) to avoid conflicts with existing tables. Once the restore is complete and verified, the tool performs atomic renames to swap the original tables with the restored data. This ensures data safety and allows for rollback if needed.
 
-**Flow:**
+**Internal flow:**
 1. Load config → verify cluster health → ensure repository exists
 2. Find the correct restore sequence (full backup + optional incremental)
 3. Get tables from backup manifest (optionally filtered by group)
@@ -271,6 +395,12 @@ starrocks-br restore \
 starrocks-br restore \
   --config config.yaml \
   --target-label sales_db_20251014_full
+
+# Restore a single table from a backup
+starrocks-br restore \
+  --config config.yaml \
+  --target-label sales_db_20251015_inc \
+  --table fact_sales
 ```
 
 ## Error Handling

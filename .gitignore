@@ -14,3 +14,4 @@ config.yaml
 .devbox/
 .devbox_setup_complete
 dist
+build
