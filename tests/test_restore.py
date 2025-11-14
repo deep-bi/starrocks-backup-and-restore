@@ -1119,6 +1119,26 @@ def test_should_cancel_restore_flow_when_user_says_no(mocker):
     assert "cancelled by user" in result["error_message"]
 
 
+def test_should_skip_confirmation_when_skip_confirmation_is_true(mocker):
+    """Test that restore flow skips input prompt when skip_confirmation is True."""
+    db = mocker.Mock()
+    repo_name = "my_repo"
+    restore_pair = ["sales_db_20251015_full"]
+    tables_to_restore = ["sales_db.fact_sales"]
+    
+    mocker.patch('starrocks_br.restore.get_snapshot_timestamp', return_value='2025-10-21-13-51-17-465')
+    mocker.patch('starrocks_br.restore.execute_restore', return_value={"success": True})
+    mocker.patch('starrocks_br.restore._perform_atomic_rename', return_value={"success": True})
+    
+    input_mock = mocker.patch('builtins.input')
+    
+    result = restore.execute_restore_flow(db, repo_name, restore_pair, tables_to_restore, skip_confirmation=True)
+    
+    assert result["success"] is True
+    assert "Restore completed successfully" in result["message"]
+    input_mock.assert_not_called()
+
+
 def test_should_fail_restore_flow_when_base_restore_fails(mocker):
     """Test that restore flow fails when base restore fails."""
     db = mocker.Mock()

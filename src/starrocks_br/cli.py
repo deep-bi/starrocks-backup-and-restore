@@ -353,7 +353,8 @@ def backup_full(config, group, name):
 @click.option('--group', help='Optional inventory group to filter tables to restore')
 @click.option('--table', help='Optional table name to restore (table name only, database comes from config). Cannot be used with --group.')
 @click.option('--rename-suffix', default='_restored', help='Suffix for temporary tables during restore (default: _restored)')
-def restore_command(config, target_label, group, table, rename_suffix):
+@click.option('--yes', is_flag=True, help='Skip confirmation prompt and proceed automatically')
+def restore_command(config, target_label, group, table, rename_suffix, yes):
     """Restore data to a specific point in time using intelligent backup chain resolution.
     
     This command automatically determines the correct sequence of backups needed for restore:
@@ -450,7 +451,8 @@ def restore_command(config, target_label, group, table, rename_suffix):
                 cfg['repository'],
                 restore_pair,
                 tables_to_restore,
-                rename_suffix
+                rename_suffix,
+                skip_confirmation=yes
             )
             
             if result['success']:

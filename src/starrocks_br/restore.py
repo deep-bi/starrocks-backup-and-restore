@@ -357,7 +357,7 @@ def get_tables_from_backup(db, label: str, group: Optional[str] = None, table: O
     return tables
 
 
-def execute_restore_flow(db, repo_name: str, restore_pair: List[str], tables_to_restore: List[str], rename_suffix: str = "_restored") -> Dict:
+def execute_restore_flow(db, repo_name: str, restore_pair: List[str], tables_to_restore: List[str], rename_suffix: str = "_restored", skip_confirmation: bool = False) -> Dict:
     """Execute the complete restore flow with safety measures.
     
     Args:
@@ -366,6 +366,7 @@ def execute_restore_flow(db, repo_name: str, restore_pair: List[str], tables_to_
         restore_pair: List of backup labels in restore order
         tables_to_restore: List of tables to restore (format: database.table)
         rename_suffix: Suffix for temporary tables
+        skip_confirmation: If True, skip interactive confirmation prompt
         
     Returns:
         Dictionary with success status and details
@@ -392,12 +393,15 @@ def execute_restore_flow(db, repo_name: str, restore_pair: List[str], tables_to_
     logger.info("This will restore data to temporary tables and then perform atomic rename.")
     logger.warning("WARNING: This operation will replace existing tables!")
     
-    confirmation = input("\nDo you want to proceed? [Y/n]: ").strip()
-    if confirmation.lower() != 'y':
-        return {
-            "success": False,
-            "error_message": "Restore operation cancelled by user"
-        }
+    if not skip_confirmation:
+        confirmation = input("\nDo you want to proceed? [Y/n]: ").strip()
+        if confirmation.lower() != 'y':
+            return {
+                "success": False,
+                "error_message": "Restore operation cancelled by user"
+            }
+    else:
+        logger.info("Proceeding automatically (--yes flag provided)")
     
     try:
         database_name = tables_to_restore[0].split('.')[0]
