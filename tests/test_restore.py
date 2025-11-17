@@ -1,4 +1,5 @@
 import pytest
+import re
 from unittest.mock import Mock, patch
 from starrocks_br import restore
 from starrocks_br import history
@@ -861,6 +862,24 @@ def test_should_return_empty_list_when_group_has_no_tables(mocker):
     assert result == []
 
 
+def test_should_get_tables_from_backup_with_wildcard_group_filter(mocker):
+    """Test getting tables from backup with group filtering that includes wildcard entries."""
+    db = mocker.Mock()
+    db.query.side_effect = [
+        [("sales_db", "fact_sales"), ("sales_db", "dim_customers"), ("orders_db", "fact_orders")],  # Backup tables
+        [("sales_db", "*")],  # Group inventory with wildcard
+        [("fact_sales",), ("dim_customers",)]  # SHOW TABLES FROM sales_db result
+    ]
+    
+    result = restore.get_tables_from_backup(db, "sales_db_20251015_full", group="full_database")
+    
+    assert result == ["sales_db.fact_sales", "sales_db.dim_customers"]
+    assert db.query.call_count == 3
+    
+    calls = [call[0][0] for call in db.query.call_args_list]
+    assert "SHOW TABLES FROM sales_db" in calls
+
+
 def test_should_get_tables_from_backup_with_table_filter(mocker):
     """Test getting tables from backup with table filtering."""
     db = mocker.Mock()
@@ -1013,10 +1032,15 @@ def test_should_perform_atomic_rename(mocker):
     assert db.execute.call_count == 4  # 2 tables * 2 rename statements each
     
     calls = [call[0][0] for call in db.execute.call_args_list]
-    assert "ALTER TABLE sales_db.fact_sales RENAME fact_sales_backup" in calls
+    
     assert "ALTER TABLE sales_db.fact_sales_restored RENAME fact_sales" in calls
-    assert "ALTER TABLE sales_db.dim_customers RENAME dim_customers_backup" in calls
     assert "ALTER TABLE sales_db.dim_customers_restored RENAME dim_customers" in calls
+    
+    backup_rename_pattern = re.compile(r"ALTER TABLE sales_db\.fact_sales RENAME fact_sales_backup_\d{8}_\d{6}")
+    assert any(backup_rename_pattern.match(call) for call in calls), "Expected timestamped backup rename for fact_sales"
+    
+    backup_rename_pattern = re.compile(r"ALTER TABLE sales_db\.dim_customers RENAME dim_customers_backup_\d{8}_\d{6}")
+    assert any(backup_rename_pattern.match(call) for call in calls), "Expected timestamped backup rename for dim_customers"
 
 
 def test_should_handle_atomic_rename_failure(mocker):
@@ -1093,6 +1117,26 @@ def test_should_cancel_restore_flow_when_user_says_no(mocker):
     
     assert result["success"] is False
     assert "cancelled by user" in result["error_message"]
+
+
+def test_should_skip_confirmation_when_skip_confirmation_is_true(mocker):
+    """Test that restore flow skips input prompt when skip_confirmation is True."""
+    db = mocker.Mock()
+    repo_name = "my_repo"
+    restore_pair = ["sales_db_20251015_full"]
+    tables_to_restore = ["sales_db.fact_sales"]
+    
+    mocker.patch('starrocks_br.restore.get_snapshot_timestamp', return_value='2025-10-21-13-51-17-465')
+    mocker.patch('starrocks_br.restore.execute_restore', return_value={"success": True})
+    mocker.patch('starrocks_br.restore._perform_atomic_rename', return_value={"success": True})
+    
+    input_mock = mocker.patch('builtins.input')
+    
+    result = restore.execute_restore_flow(db, repo_name, restore_pair, tables_to_restore, skip_confirmation=True)
+    
+    assert result["success"] is True
+    assert "Restore completed successfully" in result["message"]
+    input_mock.assert_not_called()
 
 
 def test_should_fail_restore_flow_when_base_restore_fails(mocker):

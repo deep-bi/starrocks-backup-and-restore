@@ -338,14 +338,26 @@ def get_tables_from_backup(db, label: str, group: Optional[str] = None, table: O
         if not group_rows:
             return []
         
-        group_tables = {f"{row[0]}.{row[1]}" for row in group_rows}
+        group_tables = set()
+        for row in group_rows:
+            database_name, table_name = row[0], row[1]
+            if table_name == '*':
+                show_tables_query = f"SHOW TABLES FROM {database_name}"
+                try:
+                    tables_rows = db.query(show_tables_query)
+                    for table_row in tables_rows:
+                        group_tables.add(f"{database_name}.{table_row[0]}")
+                except Exception:
+                    continue
+            else:
+                group_tables.add(f"{database_name}.{table_name}")
         
         tables = [table for table in tables if table in group_tables]
     
     return tables
 
 
-def execute_restore_flow(db, repo_name: str, restore_pair: List[str], tables_to_restore: List[str], rename_suffix: str = "_restored") -> Dict:
+def execute_restore_flow(db, repo_name: str, restore_pair: List[str], tables_to_restore: List[str], rename_suffix: str = "_restored", skip_confirmation: bool = False) -> Dict:
     """Execute the complete restore flow with safety measures.
     
     Args:
@@ -354,6 +366,7 @@ def execute_restore_flow(db, repo_name: str, restore_pair: List[str], tables_to_
         restore_pair: List of backup labels in restore order
         tables_to_restore: List of tables to restore (format: database.table)
         rename_suffix: Suffix for temporary tables
+        skip_confirmation: If True, skip interactive confirmation prompt
         
     Returns:
         Dictionary with success status and details
@@ -380,12 +393,15 @@ def execute_restore_flow(db, repo_name: str, restore_pair: List[str], tables_to_
     logger.info("This will restore data to temporary tables and then perform atomic rename.")
     logger.warning("WARNING: This operation will replace existing tables!")
     
-    confirmation = input("\nDo you want to proceed? [Y/n]: ").strip()
-    if confirmation.lower() != 'y':
-        return {
-            "success": False,
-            "error_message": "Restore operation cancelled by user"
-        }
+    if not skip_confirmation:
+        confirmation = input("\nDo you want to proceed? [Y/n]: ").strip()
+        if confirmation.lower() != 'y':
+            return {
+                "success": False,
+                "error_message": "Restore operation cancelled by user"
+            }
+    else:
+        logger.info("Proceeding automatically (--yes flag provided)")
     
     try:
         database_name = tables_to_restore[0].split('.')[0]
@@ -492,6 +508,19 @@ def _build_restore_command_without_rename(backup_label: str, repo_name: str, tab
     PROPERTIES ("backup_timestamp" = "{backup_timestamp}")"""
 
 
+def _generate_timestamped_backup_name(table_name: str) -> str:
+    """Generate a timestamped backup table name.
+    
+    Args:
+        table_name: Original table name
+        
+    Returns:
+        Timestamped backup name in format: {table_name}_backup_YYYYMMDD_HHMMSS
+    """
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{table_name}_backup_{timestamp}"
+
+
 def _perform_atomic_rename(db, tables: List[str], rename_suffix: str) -> Dict:
     """Perform atomic rename of temporary tables to make them live."""
     try:
@@ -499,8 +528,9 @@ def _perform_atomic_rename(db, tables: List[str], rename_suffix: str) -> Dict:
         for table in tables:
             database, table_name = table.split('.', 1)
             temp_table_name = f"{table_name}{rename_suffix}"
+            backup_table_name = _generate_timestamped_backup_name(table_name)
             
-            rename_statements.append(f"ALTER TABLE {database}.{table_name} RENAME {table_name}_backup")
+            rename_statements.append(f"ALTER TABLE {database}.{table_name} RENAME {backup_table_name}")
             rename_statements.append(f"ALTER TABLE {database}.{temp_table_name} RENAME {table_name}")
         
         for statement in rename_statements:

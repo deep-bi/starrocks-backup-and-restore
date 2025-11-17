@@ -120,7 +120,7 @@ def get_run_status_schema() -> str:
     CREATE TABLE IF NOT EXISTS ops.run_status (
         scope STRING NOT NULL COMMENT "Job scope: backup or restore",
         label STRING NOT NULL COMMENT "Job label or identifier",
-        state STRING NOT NULL DEFAULT "ACTIVE" COMMENT "Job state: ACTIVE or COMPLETED",
+        state STRING NOT NULL DEFAULT "ACTIVE" COMMENT "Job state: ACTIVE, FINISHED, FAILED, or CANCELLED",
         started_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT "Job start timestamp",
         finished_at DATETIME COMMENT "Job completion timestamp"
     )

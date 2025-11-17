@@ -185,6 +185,8 @@ def test_should_run_restore_with_valid_parameters(config_file, mock_db, setup_pa
     runner = CliRunner()
     
     mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Cluster healthy"))
+    mocker.patch('starrocks_br.repository.ensure_repository')
     mocker.patch('starrocks_br.restore.find_restore_pair', return_value=['test_backup'])
     mocker.patch('starrocks_br.restore.get_tables_from_backup', return_value=['test_db.fact_table'])
     mocker.patch('starrocks_br.restore.execute_restore_flow', return_value={
@@ -201,6 +203,72 @@ def test_should_run_restore_with_valid_parameters(config_file, mock_db, setup_pa
     
     assert result.exit_code == 0
     assert 'Restore completed successfully' in result.output
+
+
+def test_should_skip_confirmation_when_yes_flag_provided(config_file, mock_db, setup_password_env, mocker):
+    """Test that restore command skips confirmation when --yes flag is provided."""
+    runner = CliRunner()
+    
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Cluster healthy"))
+    mocker.patch('starrocks_br.repository.ensure_repository')
+    mocker.patch('starrocks_br.restore.find_restore_pair', return_value=['test_backup'])
+    mocker.patch('starrocks_br.restore.get_tables_from_backup', return_value=['test_db.fact_table'])
+    
+    execute_restore_flow_mock = mocker.patch('starrocks_br.restore.execute_restore_flow', return_value={
+        'success': True,
+        'message': 'Restore completed successfully. Restored 1 tables.'
+    })
+    input_mock = mocker.patch('builtins.input')
+    
+    result = runner.invoke(cli.cli, [
+        'restore',
+        '--config', config_file,
+        '--target-label', 'test_backup',
+        '--yes'
+    ])
+    
+    assert result.exit_code == 0
+    assert 'Restore completed successfully' in result.output
+    execute_restore_flow_mock.assert_called_once()
+    call_kwargs = execute_restore_flow_mock.call_args[1]
+    assert call_kwargs['skip_confirmation'] is True
+    input_mock.assert_not_called()
+
+
+def test_should_fail_restore_when_cluster_is_unhealthy(config_file, mock_db, setup_password_env, mocker):
+    """Test that restore fails when cluster health check fails."""
+    runner = CliRunner()
+    
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(False, "Cluster unhealthy"))
+    
+    result = runner.invoke(cli.cli, [
+        'restore',
+        '--config', config_file,
+        '--target-label', 'test_backup'
+    ])
+    
+    assert result.exit_code != 0
+    assert 'unhealthy' in result.output.lower() or 'error' in result.output.lower()
+
+
+def test_should_fail_restore_when_repository_invalid(config_file, mock_db, setup_password_env, mocker):
+    """Test that restore fails when repository validation fails."""
+    runner = CliRunner()
+    
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Cluster healthy"))
+    mocker.patch('starrocks_br.repository.ensure_repository', side_effect=RuntimeError("Repository 'test_repo' not found"))
+    
+    result = runner.invoke(cli.cli, [
+        'restore',
+        '--config', config_file,
+        '--target-label', 'test_backup'
+    ])
+    
+    assert result.exit_code != 0
+    assert 'repository' in result.output.lower() or 'error' in result.output.lower()
 
 
 def test_should_fail_restore_when_missing_required_parameters(config_file, setup_password_env):
@@ -305,6 +373,8 @@ def test_restore_with_group_filter(config_file, mock_db, setup_password_env, moc
     runner = CliRunner()
     
     mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Cluster healthy"))
+    mocker.patch('starrocks_br.repository.ensure_repository')
     mocker.patch('starrocks_br.restore.find_restore_pair', return_value=['test_backup'])
     mocker.patch('starrocks_br.restore.get_tables_from_backup', return_value=['test_db.fact_table'])
     mocker.patch('starrocks_br.restore.execute_restore_flow', return_value={
@@ -330,6 +400,8 @@ def test_restore_with_table_filter(config_file, mock_db, setup_password_env, moc
     
     get_tables_mock = mocker.patch('starrocks_br.restore.get_tables_from_backup', return_value=['test_db.fact_table'])
     mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Cluster healthy"))
+    mocker.patch('starrocks_br.repository.ensure_repository')
     mocker.patch('starrocks_br.restore.find_restore_pair', return_value=['test_backup'])
     mocker.patch('starrocks_br.restore.execute_restore_flow', return_value={
         'success': True,
@@ -409,6 +481,8 @@ def test_restore_with_table_not_found_in_backup(config_file, mock_db, setup_pass
     runner = CliRunner()
     
     mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Cluster healthy"))
+    mocker.patch('starrocks_br.repository.ensure_repository')
     mocker.patch('starrocks_br.restore.find_restore_pair', return_value=['test_backup'])
     mocker.patch('starrocks_br.restore.get_tables_from_backup', side_effect=ValueError("Table 'nonexistent_table' not found in backup 'test_backup' for database 'test_db'"))
     
