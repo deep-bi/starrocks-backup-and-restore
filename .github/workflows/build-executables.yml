@@ -45,18 +45,22 @@ jobs:
         run: |
           pyinstaller --onefile --name starrocks-br --paths src entry_point.py
 
+      - name: Rename executable for release
+        run: |
+          mv dist/${{ matrix.executable_name }} dist/${{ matrix.artifact_name }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: dist/${{ matrix.executable_name }}
+          path: dist/${{ matrix.artifact_name }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           retention-days: 30
 
       - name: Create Release (on tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
         with:
-          files: dist/${{ matrix.executable_name }}
+          files: dist/${{ matrix.artifact_name }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
           tag_name: ${{ github.ref_name }}
           name: Release ${{ github.ref_name }}
         env:
