@@ -319,23 +319,28 @@ def test_should_return_empty_partitions_when_no_group_tables(mocker):
 
 def test_should_record_backup_partitions(mocker):
     """Test recording partition metadata for a backup."""
+    import hashlib
     db = mocker.Mock()
-    
+
     partitions = [
         {"database": "sales_db", "table": "fact_sales", "partition_name": "p20251015"},
         {"database": "sales_db", "table": "fact_sales", "partition_name": "p20251014"},
         {"database": "orders_db", "table": "fact_orders", "partition_name": "p20251015"},
     ]
     label = "sales_db_20251015_incremental"
-    
+
     planner.record_backup_partitions(db, label, partitions)
-    
+
     assert db.execute.call_count == 3
-    
+
     first_call = db.execute.call_args_list[0][0][0]
     assert "INSERT INTO ops.backup_partitions" in first_call
-    assert "label, database_name, table_name, partition_name" in first_call
-    assert "VALUES ('sales_db_20251015_incremental', 'sales_db', 'fact_sales', 'p20251015')" in first_call
+    assert "key_hash, label, database_name, table_name, partition_name" in first_call
+
+    # Verify the hash is computed correctly for the first partition
+    expected_composite_key = f"{label}|sales_db|fact_sales|p20251015"
+    expected_hash = hashlib.md5(expected_composite_key.encode('utf-8')).hexdigest()
+    assert f"VALUES ('{expected_hash}', 'sales_db_20251015_incremental', 'sales_db', 'fact_sales', 'p20251015')" in first_call
 
 
 def test_should_handle_empty_partitions_list_in_record_backup_partitions(mocker):

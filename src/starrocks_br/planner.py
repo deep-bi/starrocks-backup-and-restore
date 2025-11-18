@@ -1,5 +1,6 @@
 from typing import List, Dict, Optional
 import datetime
+import hashlib
 
 from starrocks_br import logger, timezone
 
@@ -232,7 +233,7 @@ def build_full_backup_command(db, group_name: str, repository: str, label: str, 
 
 def record_backup_partitions(db, label: str, partitions: List[Dict[str, str]]) -> None:
     """Record partition metadata for a backup in ops.backup_partitions table.
-    
+
     Args:
         db: Database connection
         label: Backup label
@@ -240,12 +241,15 @@ def record_backup_partitions(db, label: str, partitions: List[Dict[str, str]]) -
     """
     if not partitions:
         return
-    
+
     for partition in partitions:
+        composite_key = f"{label}|{partition['database']}|{partition['table']}|{partition['partition_name']}"
+        key_hash = hashlib.md5(composite_key.encode('utf-8')).hexdigest()
+
         db.execute(f"""
-            INSERT INTO ops.backup_partitions 
-            (label, database_name, table_name, partition_name)
-            VALUES ('{label}', '{partition['database']}', '{partition['table']}', '{partition['partition_name']}')
+            INSERT INTO ops.backup_partitions
+            (key_hash, label, database_name, table_name, partition_name)
+            VALUES ('{key_hash}', '{label}', '{partition['database']}', '{partition['table']}', '{partition['partition_name']}')
         """)
 
 

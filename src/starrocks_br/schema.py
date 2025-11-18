@@ -71,8 +71,9 @@ def get_table_inventory_schema() -> str:
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
-    PRIMARY KEY (inventory_group, database_name, table_name)
+    UNIQUE KEY (inventory_group, database_name, table_name)
     COMMENT "Inventory groups mapping to databases/tables (supports '*' wildcard)"
+    DISTRIBUTED BY HASH(inventory_group)
     """
 
 
@@ -133,12 +134,14 @@ def get_backup_partitions_schema() -> str:
     """Get CREATE TABLE statement for backup_partitions."""
     return """
     CREATE TABLE IF NOT EXISTS ops.backup_partitions (
+        key_hash STRING NOT NULL COMMENT "MD5 hash of composite key (label, database_name, table_name, partition_name)",
         label STRING NOT NULL COMMENT "The backup label this partition belongs to. FK to ops.backup_history.label.",
         database_name STRING NOT NULL COMMENT "The name of the database the partition belongs to.",
         table_name STRING NOT NULL COMMENT "The name of the table the partition belongs to.",
         partition_name STRING NOT NULL COMMENT "The name of the specific partition.",
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT "Timestamp when this record was created."
     )
-    PRIMARY KEY (label, database_name, table_name, partition_name)
+    PRIMARY KEY (key_hash)
     COMMENT "Tracks every partition included in a backup snapshot."
+    DISTRIBUTED BY HASH(key_hash)
     """
