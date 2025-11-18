@@ -90,6 +90,25 @@ def test_should_define_proper_table_structures():
     assert "partition_name" in backup_partitions_schema
 
 
+def test_should_create_table_inventory_with_unique_key():
+    """Test that table_inventory table uses UNIQUE KEY instead of PRIMARY KEY"""
+    schema_sql = schema.get_table_inventory_schema()
+
+    # Check for required fields
+    assert "inventory_group STRING NOT NULL" in schema_sql
+    assert "database_name STRING NOT NULL" in schema_sql
+    assert "table_name STRING NOT NULL" in schema_sql
+
+    # Check for unique key (not primary key)
+    assert "UNIQUE KEY (inventory_group, database_name, table_name)" in schema_sql
+
+    # Check for distribution
+    assert "DISTRIBUTED BY HASH(inventory_group)" in schema_sql
+
+    # Verify PRIMARY KEY is not present
+    assert "PRIMARY KEY" not in schema_sql
+
+
 def test_ensure_ops_schema_when_database_does_not_exist(mocker):
     """Test ensure_ops_schema creates schema when ops database doesn't exist"""
     db = mocker.Mock()
@@ -165,18 +184,23 @@ def test_ensure_ops_schema_when_tables_result_is_none(mocker):
 def test_should_create_backup_partitions_table_with_correct_structure():
     """Test that backup_partitions table has the correct schema structure"""
     schema_sql = schema.get_backup_partitions_schema()
-    
+
     # Check for required fields
+    assert "key_hash STRING NOT NULL" in schema_sql
     assert "label STRING NOT NULL" in schema_sql
     assert "database_name STRING NOT NULL" in schema_sql
     assert "table_name STRING NOT NULL" in schema_sql
     assert "partition_name STRING NOT NULL" in schema_sql
     assert "created_at DATETIME DEFAULT CURRENT_TIMESTAMP" in schema_sql
-    
-    # Check for primary key
-    assert "PRIMARY KEY (label, database_name, table_name, partition_name)" in schema_sql
-    
+
+    # Check for primary key (hash-based)
+    assert "PRIMARY KEY (key_hash)" in schema_sql
+
+    # Check for distribution
+    assert "DISTRIBUTED BY HASH(key_hash)" in schema_sql
+
     # Check for comments
+    assert "MD5 hash of composite key" in schema_sql
     assert "FK to ops.backup_history.label" in schema_sql
     assert "Tracks every partition included in a backup snapshot" in schema_sql
 

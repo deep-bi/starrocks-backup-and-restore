@@ -6,6 +6,8 @@ The StarRocks Backup & Restore tool provides production-grade automation for bac
 
 **Important:** This tool requires StarRocks 3.5 or later. Earlier versions are not supported due to differences in the `SHOW FRONTENDS` and `SHOW BACKENDS` command output formats, which are used for cluster health checks.
 
+**📋 [View Release Notes & Changelog](CHANGELOG.md)**
+
 ## Summary
 
 - [Installation](#installation)
@@ -17,6 +19,7 @@ The StarRocks Backup & Restore tool provides production-grade automation for bac
 - [Example Usage Scenarios](#example-usage-scenarios)
 - [Error Handling](#error-handling)
 - [Monitoring](#monitoring)
+- [Changelog](CHANGELOG.md)
 
 ## Installation
 
