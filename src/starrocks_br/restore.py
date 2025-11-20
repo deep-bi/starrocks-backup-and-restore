@@ -1,8 +1,7 @@
 import datetime
 import time
-from typing import Optional
 
-from . import concurrency, history, logger, timezone, utils
+from . import concurrency, exceptions, history, logger, timezone, utils
 
 MAX_POLLS = 86400  # 1 day
 
@@ -38,7 +37,7 @@ def get_snapshot_timestamp(db, repo_name: str, snapshot_name: str) -> str:
 
     rows = db.query(query)
     if not rows:
-        raise ValueError(f"Snapshot '{snapshot_name}' not found in repository '{repo_name}'")
+        raise exceptions.SnapshotNotFoundError(snapshot_name, repo_name)
 
     # The result should be a single row with columns: Snapshot, Timestamp, Status
     result = rows[0]
@@ -274,7 +273,7 @@ def find_restore_pair(db, target_label: str) -> list[str]:
 
     rows = db.query(query)
     if not rows:
-        raise ValueError(f"Backup label '{target_label}' not found or not successful")
+        raise exceptions.BackupLabelNotFoundError(target_label)
 
     target_info = {"label": rows[0][0], "backup_type": rows[0][1], "finished_at": rows[0][2]}
 
@@ -297,7 +296,7 @@ def find_restore_pair(db, target_label: str) -> list[str]:
 
         full_rows = db.query(full_backup_query)
         if not full_rows:
-            raise ValueError(f"No successful full backup found before incremental '{target_label}'")
+            raise exceptions.NoSuccessfulFullBackupFoundError(target_label)
 
         base_full_backup = full_rows[0][0]
         return [base_full_backup, target_label]
@@ -310,9 +309,9 @@ def find_restore_pair(db, target_label: str) -> list[str]:
 def get_tables_from_backup(
     db,
     label: str,
-    group: Optional[str] = None,
-    table: Optional[str] = None,
-    database: Optional[str] = None,
+    group: str | None = None,
+    table: str | None = None,
+    database: str | None = None,
 ) -> list[str]:
     """Get list of tables to restore from backup manifest.
 
@@ -332,12 +331,12 @@ def get_tables_from_backup(
         ValueError: If table is specified but not found in backup
     """
     if group and table:
-        raise ValueError(
-            "Cannot specify both --group and --table. Use --table for single table restore or --group for inventory group restore."
-        )
+        raise exceptions.InvalidTableNameError(table, "Cannot specify both --group and --table")
 
     if table and not database:
-        raise ValueError("database parameter is required when table is specified")
+        raise exceptions.InvalidTableNameError(
+            table, "database parameter is required when table is specified"
+        )
 
     query = f"""
     SELECT DISTINCT database_name, table_name
@@ -357,9 +356,7 @@ def get_tables_from_backup(
         filtered_tables = [t for t in tables if t == target_table]
 
         if not filtered_tables:
-            raise ValueError(
-                f"Table '{table}' not found in backup '{label}' for database '{database}'"
-            )
+            raise exceptions.TableNotFoundInBackupError(table, label, database)
 
         return filtered_tables
 
@@ -433,7 +430,7 @@ def execute_restore_flow(
     if not skip_confirmation:
         confirmation = input("\nDo you want to proceed? [Y/n]: ").strip()
         if confirmation.lower() != "y":
-            return {"success": False, "error_message": "Restore operation cancelled by user"}
+            raise exceptions.RestoreOperationCancelledError()
     else:
         logger.info("Proceeding automatically (--yes flag provided)")
 

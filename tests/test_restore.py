@@ -46,10 +46,12 @@ def test_should_get_snapshot_timestamp_with_tuple_result(mocker):
 
 def test_should_raise_error_when_snapshot_not_found(mocker):
     """Test that get_snapshot_timestamp raises error when snapshot not found."""
+    from starrocks_br import exceptions
+
     db = mocker.Mock()
     db.query.return_value = []
 
-    with pytest.raises(ValueError, match="Snapshot 'nonexistent' not found"):
+    with pytest.raises(exceptions.SnapshotNotFoundError, match="Snapshot 'nonexistent' not found"):
         restore.get_snapshot_timestamp(db, "my_repo", "nonexistent")
 
 
@@ -831,22 +833,31 @@ def test_should_find_restore_pair_for_incremental_backup(mocker):
 
 def test_should_raise_error_when_target_label_not_found(mocker):
     """Test that find_restore_pair raises error when target label not found."""
+    from starrocks_br import exceptions
+
     db = mocker.Mock()
     db.query.return_value = []
 
-    with pytest.raises(ValueError, match="Backup label 'nonexistent' not found"):
+    with pytest.raises(
+        exceptions.BackupLabelNotFoundError, match="Backup label 'nonexistent' not found"
+    ):
         restore.find_restore_pair(db, "nonexistent")
 
 
 def test_should_raise_error_when_incremental_has_no_full_backup(mocker):
     """Test that find_restore_pair raises error when incremental has no preceding full backup."""
+    from starrocks_br import exceptions
+
     db = mocker.Mock()
     db.query.side_effect = [
         [("sales_db_20251016_inc", "incremental", "2025-10-16 10:00:00")],  # Target backup
         [],  # No full backup found
     ]
 
-    with pytest.raises(ValueError, match="No successful full backup found before incremental"):
+    with pytest.raises(
+        exceptions.NoSuccessfulFullBackupFoundError,
+        match="No successful full backup found before incremental",
+    ):
         restore.find_restore_pair(db, "sales_db_20251016_inc")
 
 
@@ -959,13 +970,17 @@ def test_should_get_tables_from_backup_with_table_filter(mocker):
 
 def test_should_raise_value_error_when_table_not_found_in_backup(mocker):
     """Test that get_tables_from_backup raises ValueError when table is not found in backup."""
+    from starrocks_br import exceptions
+
     db = mocker.Mock()
     db.query.return_value = [
         ("sales_db", "fact_sales"),
         ("sales_db", "dim_customers"),
     ]
 
-    with pytest.raises(ValueError, match="Table 'nonexistent_table' not found in backup"):
+    with pytest.raises(
+        exceptions.TableNotFoundInBackupError, match="Table 'nonexistent_table' not found in backup"
+    ):
         restore.get_tables_from_backup(
             db, "sales_db_20251015_full", table="nonexistent_table", database="sales_db"
         )
@@ -973,9 +988,13 @@ def test_should_raise_value_error_when_table_not_found_in_backup(mocker):
 
 def test_should_raise_value_error_when_table_and_group_both_specified(mocker):
     """Test that get_tables_from_backup raises ValueError when both table and group are specified."""
+    from starrocks_br import exceptions
+
     db = mocker.Mock()
 
-    with pytest.raises(ValueError, match="Cannot specify both --group and --table"):
+    with pytest.raises(
+        exceptions.InvalidTableNameError, match="Cannot specify both --group and --table"
+    ):
         restore.get_tables_from_backup(
             db,
             "sales_db_20251015_full",
@@ -987,9 +1006,14 @@ def test_should_raise_value_error_when_table_and_group_both_specified(mocker):
 
 def test_should_raise_value_error_when_table_specified_without_database(mocker):
     """Test that get_tables_from_backup raises ValueError when table is specified without database."""
+    from starrocks_br import exceptions
+
     db = mocker.Mock()
 
-    with pytest.raises(ValueError, match="database parameter is required when table is specified"):
+    with pytest.raises(
+        exceptions.InvalidTableNameError,
+        match="database parameter is required when table is specified",
+    ):
         restore.get_tables_from_backup(db, "sales_db_20251015_full", table="fact_sales")
 
 
@@ -1012,13 +1036,17 @@ def test_should_filter_table_by_database_when_multiple_databases_in_backup(mocke
 
 def test_should_return_empty_list_when_table_not_in_specified_database(mocker):
     """Test that get_tables_from_backup returns empty list when table exists but in different database."""
+    from starrocks_br import exceptions
+
     db = mocker.Mock()
     db.query.return_value = [
         ("sales_db", "fact_sales"),
         ("orders_db", "fact_orders"),
     ]
 
-    with pytest.raises(ValueError, match="Table 'fact_orders' not found in backup"):
+    with pytest.raises(
+        exceptions.TableNotFoundInBackupError, match="Table 'fact_orders' not found in backup"
+    ):
         restore.get_tables_from_backup(
             db, "multi_db_backup", table="fact_orders", database="sales_db"
         )
@@ -1172,6 +1200,8 @@ def test_should_execute_restore_flow_with_incremental_backup(mocker):
 
 def test_should_cancel_restore_flow_when_user_says_no(mocker):
     """Test that restore flow is cancelled when user says no."""
+    from starrocks_br import exceptions
+
     db = mocker.Mock()
     repo_name = "my_repo"
     restore_pair = ["sales_db_20251015_full"]
@@ -1179,10 +1209,8 @@ def test_should_cancel_restore_flow_when_user_says_no(mocker):
 
     mocker.patch("builtins.input", return_value="n")
 
-    result = restore.execute_restore_flow(db, repo_name, restore_pair, tables_to_restore)
-
-    assert result["success"] is False
-    assert "cancelled by user" in result["error_message"]
+    with pytest.raises(exceptions.RestoreOperationCancelledError, match="cancelled by user"):
+        restore.execute_restore_flow(db, repo_name, restore_pair, tables_to_restore)
 
 
 def test_should_skip_confirmation_when_skip_confirmation_is_true(mocker):

@@ -1,9 +1,7 @@
-from typing import Optional
-
 from . import logger
 
 
-def log_backup(db, entry: dict[str, Optional[str]]) -> None:
+def log_backup(db, entry: dict[str, str | None]) -> None:
     """Write a backup history entry to ops.backup_history.
 
     Expected keys in entry:
@@ -24,7 +22,7 @@ def log_backup(db, entry: dict[str, Optional[str]]) -> None:
     finished_at = entry.get("finished_at", "NULL")
     error_message = entry.get("error_message")
 
-    def esc(val: Optional[str]) -> str:
+    def esc(val: str | None) -> str:
         if val is None:
             return "NULL"
         return "'" + str(val).replace("'", "''") + "'"
@@ -45,7 +43,7 @@ def log_backup(db, entry: dict[str, Optional[str]]) -> None:
         raise
 
 
-def log_restore(db, entry: dict[str, Optional[str]]) -> None:
+def log_restore(db, entry: dict[str, str | None]) -> None:
     """Write a restore history entry to ops.restore_history.
 
     Expected keys in entry:
@@ -69,7 +67,7 @@ def log_restore(db, entry: dict[str, Optional[str]]) -> None:
     error_message = entry.get("error_message")
     verification_checksum = entry.get("verification_checksum")
 
-    def esc(val: Optional[str]) -> str:
+    def esc(val: str | None) -> str:
         if val is None:
             return "NULL"
         return "'" + str(val).replace("'", "''") + "'"

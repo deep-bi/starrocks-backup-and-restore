@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any
 
 import mysql.connector
 
@@ -13,7 +13,7 @@ class StarRocksDB:
         user: str,
         password: str,
         database: str,
-        tls_config: Optional[dict[str, Any]] = None,
+        tls_config: dict[str, Any] | None = None,
     ):
         """Initialize database connection.
 
@@ -31,7 +31,7 @@ class StarRocksDB:
         self.database = database
         self._connection = None
         self.tls_config = tls_config or {}
-        self._timezone: Optional[str] = None
+        self._timezone: str | None = None
 
     def connect(self) -> None:
         """Establish database connection."""

@@ -238,8 +238,8 @@ def test_commands_exit_if_schema_is_auto_created(
         ("init", FileNotFoundError("Config not found"), "Config file not found"),
         ("init", ValueError("Invalid config"), "Configuration error"),
         ("init", Exception("Init failed"), "Failed to initialize schema"),
-        ("cli", FileNotFoundError("Config not found"), "Config file not found"),
-        ("cli", ValueError("Invalid config"), "Configuration error"),
+        ("cli", FileNotFoundError("Config not found"), "CONFIG FILE NOT FOUND"),
+        ("cli", ValueError("Invalid config"), "CONFIGURATION ERROR"),
         ("cli", RuntimeError("Restore error"), "Restore error"),
         ("cli", Exception("Unexpected"), "Unexpected error"),
     ],
@@ -420,17 +420,17 @@ def test_backup_logic_failures(
         (
             "find_restore_pair raises ValueError",
             {"find_restore_pair": ValueError("Failed to find restore sequence")},
-            "Failed to find restore sequence",
+            "Configuration error",
         ),
         (
             "get_tables_from_backup raises ValueError",
             {"get_tables_from_backup": ValueError("Table not found in backup")},
-            "Table not found in backup",
+            "Configuration error",
         ),
         (
             "No tables found in backup (empty list)",
             {"get_tables_from_backup": []},
-            "No tables found in backup",
+            "NO TABLES FOUND",
         ),
     ],
 )
@@ -1166,12 +1166,12 @@ def test_restore_failure(
         (
             "group",
             "nonexistent_group",
-            "No tables found in backup 'test_backup' for group 'nonexistent_group'",
+            "NO TABLES FOUND",
         ),
         (
             "table",
             "nonexistent_table",
-            "No tables found in backup 'test_backup' for table 'nonexistent_table'",
+            "NO TABLES FOUND",
         ),
     ],
 )
@@ -1225,3 +1225,127 @@ def test_restore_no_tables_found_with_filters(
 
     assert result.exit_code == 1
     assert expected_line in result.output
+
+
+def test_restore_displays_rich_error_for_backup_label_not_found(
+    config_file,
+    mock_db,
+    mock_initialized_schema,
+    mock_healthy_cluster,
+    mock_repo_exists,
+    setup_password_env,
+    mocker,
+):
+    """Test that restore displays rich error message when backup label is not found."""
+    runner = CliRunner()
+
+    from starrocks_br import exceptions
+
+    mocker.patch(
+        "starrocks_br.restore.find_restore_pair",
+        side_effect=exceptions.BackupLabelNotFoundError("nonexistent_label", "test_repo"),
+    )
+
+    result = runner.invoke(
+        cli.cli, ["restore", "--config", config_file, "--target-label", "nonexistent_label"]
+    )
+
+    assert result.exit_code == 1
+    assert "RESTORE FAILED" in result.output
+    assert "nonexistent_label" in result.output
+    assert "test_repo" in result.output
+    assert "REASON" in result.output
+    assert "WHAT YOU CAN DO" in result.output
+
+
+def test_restore_displays_rich_error_for_invalid_table_name(
+    config_file,
+    mock_db,
+    mock_initialized_schema,
+    setup_password_env,
+):
+    """Test that restore displays rich error message for invalid table names."""
+    runner = CliRunner()
+
+    result = runner.invoke(
+        cli.cli,
+        [
+            "restore",
+            "--config",
+            config_file,
+            "--target-label",
+            "test_backup",
+            "--table",
+            "database.table",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "INVALID TABLE NAME" in result.output
+    assert "database.table" in result.output
+    assert "REASON" in result.output
+    assert "WHAT YOU CAN DO" in result.output
+
+
+def test_restore_displays_rich_error_for_table_not_found_in_backup(
+    config_file,
+    mock_db,
+    mock_initialized_schema,
+    mock_healthy_cluster,
+    mock_repo_exists,
+    setup_password_env,
+    mocker,
+):
+    """Test that restore displays rich error when table is not found in backup."""
+    runner = CliRunner()
+
+    from starrocks_br import exceptions
+
+    mocker.patch("starrocks_br.restore.find_restore_pair", return_value=["test_backup"])
+    mocker.patch(
+        "starrocks_br.restore.get_tables_from_backup",
+        side_effect=exceptions.TableNotFoundInBackupError("my_table", "test_backup", "test_db"),
+    )
+
+    result = runner.invoke(
+        cli.cli,
+        [
+            "restore",
+            "--config",
+            config_file,
+            "--target-label",
+            "test_backup",
+            "--table",
+            "my_table",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "TABLE NOT FOUND" in result.output
+    assert "my_table" in result.output
+    assert "test_backup" in result.output
+    assert "test_db" in result.output
+
+
+def test_cli_verbose_flag_enables_debug_logging(config_file, mocker):
+    """Test that --verbose flag enables debug logging."""
+    runner = CliRunner()
+
+    setup_logging_mock = mocker.patch("starrocks_br.logger.setup_logging")
+
+    runner.invoke(cli.cli, ["--verbose", "restore", "--help"])
+
+    import logging
+
+    setup_logging_mock.assert_called_once_with(level=logging.DEBUG)
+
+
+def test_cli_without_verbose_uses_info_logging(config_file, mocker):
+    """Test that CLI without --verbose uses INFO level logging."""
+    runner = CliRunner()
+
+    setup_logging_mock = mocker.patch("starrocks_br.logger.setup_logging")
+
+    runner.invoke(cli.cli, ["restore", "--help"])
+
+    setup_logging_mock.assert_called_once_with()

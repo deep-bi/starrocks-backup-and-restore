@@ -1,6 +1,6 @@
 import re
 import time
-from typing import Literal, Optional
+from typing import Literal
 
 from . import concurrency, history, logger, timezone
 
@@ -22,7 +22,7 @@ def _calculate_next_interval(current_interval: float, max_interval: float) -> fl
 
 def submit_backup_command(
     db, backup_command: str
-) -> tuple[bool, Optional[str], Optional[dict[str, str]]]:
+) -> tuple[bool, str | None, dict[str, str] | None]:
     """Submit a backup command to StarRocks.
 
     Returns (success, error_message, error_details).
@@ -50,7 +50,7 @@ def submit_backup_command(
         return False, error_msg, None
 
 
-def _check_snapshot_exists_error(exception: Exception, error_str: str) -> Optional[str]:
+def _check_snapshot_exists_error(exception: Exception, error_str: str) -> str | None:
     """Check if the error is a 'snapshot already exists' error and extract snapshot name.
 
     Args:
@@ -166,7 +166,7 @@ def execute_backup(
     repository: str,
     backup_type: Literal["incremental", "full"] = None,
     scope: str = "backup",
-    database: Optional[str] = None,
+    database: str | None = None,
 ) -> dict:
     """Execute a complete backup workflow: submit command and monitor progress.
 

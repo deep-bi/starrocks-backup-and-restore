@@ -6,6 +6,8 @@ import click
 from . import (
     concurrency,
     db,
+    error_handler,
+    exceptions,
     executor,
     health,
     labels,
@@ -63,9 +65,20 @@ def _handle_snapshot_exists_error(
 
 
 @click.group()
-def cli():
+@click.option("--verbose", is_flag=True, help="Enable verbose debug logging")
+@click.pass_context
+def cli(ctx, verbose):
     """StarRocks Backup & Restore automation tool."""
-    pass
+    ctx.ensure_object(dict)
+    ctx.obj["verbose"] = verbose
+
+    if verbose:
+        import logging
+
+        logger.setup_logging(level=logging.DEBUG)
+        logger.debug("Verbose logging enabled")
+    else:
+        logger.setup_logging()
 
 
 @cli.command("init")
@@ -429,14 +442,13 @@ def restore_command(config, target_label, group, table, rename_suffix, yes):
         if table:
             table = table.strip()
             if not table:
-                logger.error("Table name cannot be empty")
-                sys.exit(1)
+                raise exceptions.InvalidTableNameError("", "Table name cannot be empty")
 
             if "." in table:
-                logger.error(
-                    "Table name must not include database prefix. Use 'table_name' not 'database.table_name'. Database comes from config file."
+                raise exceptions.InvalidTableNameError(
+                    table,
+                    "Table name must not include database prefix. Use 'table_name' not 'database.table_name'",
                 )
-                sys.exit(1)
 
         cfg = config_module.load_config(config)
         config_module.validate_config(cfg)
@@ -472,39 +484,21 @@ def restore_command(config, target_label, group, table, rename_suffix, yes):
 
             logger.info(f"Finding restore sequence for target backup: {target_label}")
 
-            try:
-                restore_pair = restore.find_restore_pair(database, target_label)
-                logger.success(f"Found restore sequence: {' -> '.join(restore_pair)}")
-            except ValueError as e:
-                logger.error(f"Failed to find restore sequence: {e}")
-                sys.exit(1)
+            restore_pair = restore.find_restore_pair(database, target_label)
+            logger.success(f"Found restore sequence: {' -> '.join(restore_pair)}")
 
             logger.info("Determining tables to restore from backup manifest...")
 
-            try:
-                tables_to_restore = restore.get_tables_from_backup(
-                    database,
-                    target_label,
-                    group=group,
-                    table=table,
-                    database=cfg["database"] if table else None,
-                )
-            except ValueError as e:
-                logger.error(str(e))
-                sys.exit(1)
+            tables_to_restore = restore.get_tables_from_backup(
+                database,
+                target_label,
+                group=group,
+                table=table,
+                database=cfg["database"] if table else None,
+            )
 
             if not tables_to_restore:
-                if group:
-                    logger.warning(
-                        f"No tables found in backup '{target_label}' for group '{group}'"
-                    )
-                elif table:
-                    logger.warning(
-                        f"No tables found in backup '{target_label}' for table '{table}'"
-                    )
-                else:
-                    logger.warning(f"No tables found in backup '{target_label}'")
-                sys.exit(1)
+                raise exceptions.NoTablesFoundError(group=group, label=target_label)
 
             logger.success(
                 f"Found {len(tables_to_restore)} table(s) to restore: {', '.join(tables_to_restore)}"
@@ -527,11 +521,43 @@ def restore_command(config, target_label, group, table, rename_suffix, yes):
                 logger.error(f"Restore failed: {result['error_message']}")
                 sys.exit(1)
 
+    except exceptions.InvalidTableNameError as e:
+        error_handler.handle_invalid_table_name_error(e)
+        sys.exit(1)
+    except exceptions.BackupLabelNotFoundError as e:
+        error_handler.handle_backup_label_not_found_error(e, config)
+        sys.exit(1)
+    except exceptions.NoSuccessfulFullBackupFoundError as e:
+        error_handler.handle_no_successful_full_backup_found_error(e, config)
+        sys.exit(1)
+    except exceptions.TableNotFoundInBackupError as e:
+        error_handler.handle_table_not_found_in_backup_error(e, config)
+        sys.exit(1)
+    except exceptions.NoTablesFoundError as e:
+        error_handler.handle_no_tables_found_error(e, config, target_label)
+        sys.exit(1)
+    except exceptions.SnapshotNotFoundError as e:
+        error_handler.handle_snapshot_not_found_error(e, config)
+        sys.exit(1)
+    except exceptions.RestoreOperationCancelledError:
+        error_handler.handle_restore_operation_cancelled_error()
+        sys.exit(1)
+    except exceptions.ConfigFileNotFoundError as e:
+        error_handler.handle_config_file_not_found_error(e)
+        sys.exit(1)
+    except exceptions.ConfigValidationError as e:
+        error_handler.handle_config_validation_error(e, config)
+        sys.exit(1)
+    except exceptions.ClusterHealthCheckFailedError as e:
+        error_handler.handle_cluster_health_check_failed_error(e, config)
+        sys.exit(1)
     except FileNotFoundError as e:
-        logger.error(f"Config file not found: {e}")
+        error_handler.handle_config_file_not_found_error(exceptions.ConfigFileNotFoundError(str(e)))
         sys.exit(1)
     except ValueError as e:
-        logger.error(f"Configuration error: {e}")
+        error_handler.handle_config_validation_error(
+            exceptions.ConfigValidationError(str(e)), config
+        )
         sys.exit(1)
     except RuntimeError as e:
         logger.error(f"{e}")

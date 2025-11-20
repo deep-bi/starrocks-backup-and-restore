@@ -1,11 +1,10 @@
 import datetime
 import hashlib
-from typing import Optional
 
 from starrocks_br import logger, timezone, utils
 
 
-def find_latest_full_backup(db, database: str) -> Optional[dict[str, str]]:
+def find_latest_full_backup(db, database: str) -> dict[str, str] | None:
     """Find the latest successful full backup for a database.
 
     Args:
@@ -60,7 +59,7 @@ def find_tables_by_group(db, group_name: str) -> list[dict[str, str]]:
 
 
 def find_recent_partitions(
-    db, database: str, baseline_backup_label: Optional[str] = None, *, group_name: str
+    db, database: str, baseline_backup_label: str | None = None, *, group_name: str
 ) -> list[dict[str, str]]:
     """Find partitions updated since baseline for tables in the given inventory group.
 

@@ -709,7 +709,7 @@ def test_should_log_status_changes_during_polling(mocker, capsys):
     assert status["state"] == "FINISHED"
 
     captured = capsys.readouterr()
-    output = captured.out
+    output = captured.err
 
     assert "PENDING" in output
     assert "SNAPSHOTING" in output
@@ -732,7 +732,7 @@ def test_should_log_progress_every_10_polls(mocker, capsys):
     assert status["state"] == "FINISHED"
 
     captured = capsys.readouterr()
-    output = captured.out
+    output = captured.err
 
     assert "poll 1/" in output
     assert "poll 10/" in output
@@ -750,7 +750,7 @@ def test_should_include_max_polls_in_status_logging(mocker, capsys):
     executor.poll_backup_status(db, "test_backup", "test_db", max_polls=100, poll_interval=0.001)
 
     captured = capsys.readouterr()
-    output = captured.out
+    output = captured.err
 
     assert "/100)" in output
 
