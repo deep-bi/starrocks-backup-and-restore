@@ -60,6 +60,23 @@ pip install starrocks-br
 starrocks-br --help
 ```
 
+**Running without activation:**
+
+You can run the tool without activating the environment:
+
+```bash
+# Option 1: Using micromamba run
+micromamba run -n starrocks-br starrocks-br --help
+
+# Option 2: Using direct path to binary
+~/.local/share/micromamba/envs/starrocks-br/bin/starrocks-br --help
+```
+
+**Optional:** Add the binary to your PATH for easier access:
+```bash
+export PATH="$HOME/.local/share/micromamba/envs/starrocks-br/bin:$PATH"
+```
+
 ## Option 4: Devbox (Development)
 
 **Recommended for contributors.**

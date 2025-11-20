@@ -6,6 +6,15 @@ Full and incremental backup automation for StarRocks shared-nothing clusters.
 
 📋 **[Release Notes & Changelog](CHANGELOG.md)**
 
+## Table of Contents
+
+- [Why This Tool?](#why-this-tool)
+- [Documentation](#documentation)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Basic Usage](#basic-usage)
+- [How It Works](#how-it-works)
+
 ## Why This Tool?
 
 StarRocks provides native `BACKUP` and `RESTORE` commands, but they only support full backups. For large-scale deployments hosting data at petabyte scale, full backups are not feasible due to time, storage, and network constraints.
