@@ -1,12 +1,12 @@
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal
 
 
 def determine_backup_label(
     db,
     backup_type: Literal["incremental", "full"],
     database_name: str,
-    custom_name: Optional[str] = None,
+    custom_name: str | None = None,
 ) -> str:
     """Determine a unique backup label for the given parameters.
 

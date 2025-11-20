@@ -1,6 +1,5 @@
 import datetime
 import time
-from typing import Optional
 
 from . import concurrency, exceptions, history, logger, timezone, utils
 
@@ -310,9 +309,9 @@ def find_restore_pair(db, target_label: str) -> list[str]:
 def get_tables_from_backup(
     db,
     label: str,
-    group: Optional[str] = None,
-    table: Optional[str] = None,
-    database: Optional[str] = None,
+    group: str | None = None,
+    table: str | None = None,
+    database: str | None = None,
 ) -> list[str]:
     """Get list of tables to restore from backup manifest.
 

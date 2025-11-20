@@ -1,5 +1,4 @@
 import datetime
-from typing import Union
 from zoneinfo import ZoneInfo
 
 
@@ -55,7 +54,7 @@ def normalize_datetime_to_tz(dt: datetime.datetime, target_tz: str) -> datetime.
     return dt
 
 
-def _get_timezone(tz_str: str) -> Union[ZoneInfo, datetime.timezone]:
+def _get_timezone(tz_str: str) -> ZoneInfo | datetime.timezone:
     """Get timezone object from timezone string.
 
     Handles both named timezones (e.g., 'Asia/Shanghai') and offset strings (e.g., '+08:00', '-05:00').
