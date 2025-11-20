@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-11-20
+
+### Added
+- Modern logging system with rich error handling and colored output
+- Pre-commit hooks for automated code quality checks (ruff)
+- Support for Python 3.10, 3.11, and 3.12
+
+### Changed
+- **Breaking**: Dropped Python 3.9 support (EOL)
+- Minimum required Python version is now 3.10
+- Improved error messages with visual indicators
+- Enhanced developer experience with automatic linting and formatting
+
+### Fixed
+- Test compatibility with new logging system
+- CI workflow now tests on Python 3.10, 3.11, and 3.12
+
+## [0.4.0] - 2025-11-20
+
+### Added
+- SQL identifier sanitization with `quote_identifier()` and `quote_value()` helpers
+- Exponential backoff for polling operations (1s to 60s max interval)
+
+### Changed
+- All SQL queries now use backtick quoting to protect against SQL injection
+- Restore operations now use cluster timezone instead of local `datetime.now()`
+- Job slot reservation now happens before recording backup partitions
+
+### Fixed
+- **Security**: SQL injection protection for database/table/partition identifiers
+- **Reliability**: Prevents orphaned records when job slot reservation fails
+- **Performance**: Reduced database polling from ~21,600 to ~300 polls for 6-hour operations
+- **Correctness**: Eliminated timestamp drift across different machines in restore operations
+
 ## [0.3.0] - 2025-11-18
 
 ### Fixed
