@@ -190,11 +190,11 @@ def backup_incremental(config, baseline_backup, group, name):
             backup_command = planner.build_incremental_backup_command(
                 partitions, cfg['repository'], label, cfg['database']
             )
-            
-            planner.record_backup_partitions(database, label, partitions)
-            
+
             concurrency.reserve_job_slot(database, scope='backup', label=label)
-            
+
+            planner.record_backup_partitions(database, label, partitions)
+
             logger.success(f"Job slot reserved")
             logger.info(f"Starting incremental backup for group '{group}'...")
             result = executor.execute_backup(
@@ -299,10 +299,11 @@ def backup_full(config, group, name):
             
             tables = planner.find_tables_by_group(database, group)
             all_partitions = planner.get_all_partitions_for_tables(database, cfg['database'], tables)
-            planner.record_backup_partitions(database, label, all_partitions)
-            
+
             concurrency.reserve_job_slot(database, scope='backup', label=label)
-            
+
+            planner.record_backup_partitions(database, label, all_partitions)
+
             logger.success(f"Job slot reserved")
             logger.info(f"Starting full backup for group '{group}'...")
             result = executor.execute_backup(

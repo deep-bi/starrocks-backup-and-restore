@@ -770,35 +770,151 @@ def test_should_prevent_incremental_backup_label_collision(config_file, mock_db,
 
 def test_should_prevent_full_backup_label_collision(config_file, mock_db, setup_common_mocks, setup_password_env, mocker):
     runner = CliRunner()
-    
+
     def mock_query(query, params=None):
         if "ops.backup_history" in query and params:
             if params[0] == "test_db_20251020_full%":
                 return [("test_db_20251020_full",)]
         return []
-    
+
     mock_db.query.side_effect = mock_query
-    
+
     mocker.patch('starrocks_br.planner.build_full_backup_command', return_value='BACKUP DATABASE sales_db SNAPSHOT sales_db_20251020_full_r1 TO test_repo')
     mocker.patch('starrocks_br.executor.execute_backup', return_value={
         'success': True,
         'final_status': {'state': 'FINISHED'},
         'error_message': None
     })
-    
-    mock_datetime = mocker.patch('starrocks_br.labels.datetime') 
+
+    mock_datetime = mocker.patch('starrocks_br.labels.datetime')
     mock_datetime.now.return_value.strftime.return_value = "20251020"
-    
+
     result = runner.invoke(cli.backup_full, [
-        '--config', config_file, 
+        '--config', config_file,
         '--group', 'weekly_full'
     ])
-    
+
     assert result.exit_code == 0
     assert 'Backup completed successfully' in result.output
     assert 'Generated label:' in result.output
-    
+
     output_lines = result.output.split('\n')
     label_line = [line for line in output_lines if 'Generated label:' in line][0]
     assert '_r1' in label_line
+
+
+def test_incremental_backup_reserves_slot_before_recording_partitions(config_file, mock_db, setup_password_env, mocker):
+    runner = CliRunner()
+    call_order = []
+
+    def mock_reserve_job_slot(*args, **kwargs):
+        call_order.append('reserve_job_slot')
+
+    def mock_record_backup_partitions(*args, **kwargs):
+        call_order.append('record_backup_partitions')
+
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Healthy"))
+    mocker.patch('starrocks_br.repository.ensure_repository')
+    mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
+        'label': 'test_db_20251015_full',
+        'backup_type': 'full',
+        'finished_at': '2025-10-15 10:00:00'
+    })
+    mocker.patch('starrocks_br.planner.find_recent_partitions', return_value=[
+        {"database": "test_db", "table": "fact_table", "partition_name": "p20251016"}
+    ])
+    mocker.patch('starrocks_br.labels.determine_backup_label', return_value='test_db_20251016_inc')
+    mocker.patch('starrocks_br.planner.build_incremental_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_inc TO test_repo')
+    mocker.patch('starrocks_br.concurrency.reserve_job_slot', side_effect=mock_reserve_job_slot)
+    mocker.patch('starrocks_br.planner.record_backup_partitions', side_effect=mock_record_backup_partitions)
+    mocker.patch('starrocks_br.executor.execute_backup', return_value={
+        'success': True,
+        'final_status': {'state': 'FINISHED'},
+        'error_message': None
+    })
+
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--group', 'daily_incremental'])
+
+    assert result.exit_code == 0
+    assert len(call_order) == 2
+    assert call_order[0] == 'reserve_job_slot'
+    assert call_order[1] == 'record_backup_partitions'
+
+
+def test_incremental_backup_does_not_record_partitions_when_slot_reservation_fails(config_file, mock_db, setup_password_env, mocker):
+    runner = CliRunner()
+
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Healthy"))
+    mocker.patch('starrocks_br.repository.ensure_repository')
+    mocker.patch('starrocks_br.planner.find_latest_full_backup', return_value={
+        'label': 'test_db_20251015_full',
+        'backup_type': 'full',
+        'finished_at': '2025-10-15 10:00:00'
+    })
+    mocker.patch('starrocks_br.planner.find_recent_partitions', return_value=[
+        {"database": "test_db", "table": "fact_table", "partition_name": "p20251016"}
+    ])
+    mocker.patch('starrocks_br.labels.determine_backup_label', return_value='test_db_20251016_inc')
+    mocker.patch('starrocks_br.planner.build_incremental_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_inc TO test_repo')
+    mocker.patch('starrocks_br.concurrency.reserve_job_slot', side_effect=RuntimeError("active job conflict"))
+    record_mock = mocker.patch('starrocks_br.planner.record_backup_partitions')
+
+    result = runner.invoke(cli.backup_incremental, ['--config', config_file, '--group', 'daily_incremental'])
+
+    assert result.exit_code != 0
+    record_mock.assert_not_called()
+
+
+def test_full_backup_reserves_slot_before_recording_partitions(config_file, mock_db, setup_password_env, mocker):
+    runner = CliRunner()
+    call_order = []
+
+    def mock_reserve_job_slot(*args, **kwargs):
+        call_order.append('reserve_job_slot')
+
+    def mock_record_backup_partitions(*args, **kwargs):
+        call_order.append('record_backup_partitions')
+
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Healthy"))
+    mocker.patch('starrocks_br.repository.ensure_repository')
+    mocker.patch('starrocks_br.planner.build_full_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_full TO test_repo')
+    mocker.patch('starrocks_br.planner.find_tables_by_group', return_value=[{'database': 'test_db', 'table': 'dim_customers'}])
+    mocker.patch('starrocks_br.planner.get_all_partitions_for_tables', return_value=[])
+    mocker.patch('starrocks_br.labels.determine_backup_label', return_value='test_db_20251016_full')
+    mocker.patch('starrocks_br.concurrency.reserve_job_slot', side_effect=mock_reserve_job_slot)
+    mocker.patch('starrocks_br.planner.record_backup_partitions', side_effect=mock_record_backup_partitions)
+    mocker.patch('starrocks_br.executor.execute_backup', return_value={
+        'success': True,
+        'final_status': {'state': 'FINISHED'},
+        'error_message': None
+    })
+
+    result = runner.invoke(cli.backup_full, ['--config', config_file, '--group', 'weekly_dimensions'])
+
+    assert result.exit_code == 0
+    assert len(call_order) == 2
+    assert call_order[0] == 'reserve_job_slot'
+    assert call_order[1] == 'record_backup_partitions'
+
+
+def test_full_backup_does_not_record_partitions_when_slot_reservation_fails(config_file, mock_db, setup_password_env, mocker):
+    runner = CliRunner()
+
+    mocker.patch('starrocks_br.schema.ensure_ops_schema', return_value=False)
+    mocker.patch('starrocks_br.health.check_cluster_health', return_value=(True, "Healthy"))
+    mocker.patch('starrocks_br.repository.ensure_repository')
+    mocker.patch('starrocks_br.planner.build_full_backup_command', return_value='BACKUP DATABASE test_db SNAPSHOT test_db_20251016_full TO test_repo')
+    mocker.patch('starrocks_br.planner.find_tables_by_group', return_value=[{'database': 'test_db', 'table': 'dim_customers'}])
+    mocker.patch('starrocks_br.planner.get_all_partitions_for_tables', return_value=[])
+    mocker.patch('starrocks_br.labels.determine_backup_label', return_value='test_db_20251016_full')
+    mocker.patch('starrocks_br.concurrency.reserve_job_slot', side_effect=RuntimeError("active job conflict"))
+    record_mock = mocker.patch('starrocks_br.planner.record_backup_partitions')
+
+    result = runner.invoke(cli.backup_full, ['--config', config_file, '--group', 'weekly_dimensions'])
+
+    assert result.exit_code != 0
+    record_mock.assert_not_called()
 
