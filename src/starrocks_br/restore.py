@@ -332,12 +332,12 @@ def get_tables_from_backup(
         ValueError: If table is specified but not found in backup
     """
     if group and table:
-        raise exceptions.InvalidTableNameError(
-            table, "Cannot specify both --group and --table"
-        )
+        raise exceptions.InvalidTableNameError(table, "Cannot specify both --group and --table")
 
     if table and not database:
-        raise exceptions.InvalidTableNameError(table, "database parameter is required when table is specified")
+        raise exceptions.InvalidTableNameError(
+            table, "database parameter is required when table is specified"
+        )
 
     query = f"""
     SELECT DISTINCT database_name, table_name

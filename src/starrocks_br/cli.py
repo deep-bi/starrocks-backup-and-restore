@@ -70,10 +70,11 @@ def _handle_snapshot_exists_error(
 def cli(ctx, verbose):
     """StarRocks Backup & Restore automation tool."""
     ctx.ensure_object(dict)
-    ctx.obj['verbose'] = verbose
+    ctx.obj["verbose"] = verbose
 
     if verbose:
         import logging
+
         logger.setup_logging(level=logging.DEBUG)
         logger.debug("Verbose logging enabled")
     else:
@@ -445,7 +446,8 @@ def restore_command(config, target_label, group, table, rename_suffix, yes):
 
             if "." in table:
                 raise exceptions.InvalidTableNameError(
-                    table, "Table name must not include database prefix. Use 'table_name' not 'database.table_name'"
+                    table,
+                    "Table name must not include database prefix. Use 'table_name' not 'database.table_name'",
                 )
 
         cfg = config_module.load_config(config)
@@ -553,7 +555,9 @@ def restore_command(config, target_label, group, table, rename_suffix, yes):
         error_handler.handle_config_file_not_found_error(exceptions.ConfigFileNotFoundError(str(e)))
         sys.exit(1)
     except ValueError as e:
-        error_handler.handle_config_validation_error(exceptions.ConfigValidationError(str(e)), config)
+        error_handler.handle_config_validation_error(
+            exceptions.ConfigValidationError(str(e)), config
+        )
         sys.exit(1)
     except RuntimeError as e:
         logger.error(f"{e}")

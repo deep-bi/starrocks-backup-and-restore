@@ -21,7 +21,9 @@ class BackupLabelNotFoundError(StarRocksBRError):
 class NoSuccessfulFullBackupFoundError(StarRocksBRError):
     def __init__(self, incremental_label: str):
         self.incremental_label = incremental_label
-        super().__init__(f"No successful full backup found before incremental '{incremental_label}'")
+        super().__init__(
+            f"No successful full backup found before incremental '{incremental_label}'"
+        )
 
 
 class TableNotFoundInBackupError(StarRocksBRError):

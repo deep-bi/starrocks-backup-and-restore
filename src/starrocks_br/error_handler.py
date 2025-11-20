@@ -47,9 +47,12 @@ def handle_missing_option_error(exc: exceptions.MissingOptionError, config: str 
         what_to_do=[
             f"Add the missing parameter: {exc.missing_option}",
             "Run the command with --help to see all required options",
-            f"Example: starrocks-br <command> {exc.missing_option} <value>" + (f" --config {config}" if config else ""),
+            f"Example: starrocks-br <command> {exc.missing_option} <value>"
+            + (f" --config {config}" if config else ""),
         ],
-        inputs={"--config": config, "Missing": exc.missing_option} if config else {"Missing": exc.missing_option},
+        inputs={"--config": config, "Missing": exc.missing_option}
+        if config
+        else {"Missing": exc.missing_option},
         help_links=["Run with --help for more information"],
     )
 
@@ -59,10 +62,17 @@ def handle_backup_label_not_found_error(
 ) -> None:
     display_structured_error(
         title="RESTORE FAILED",
-        reason=f'The backup label "{exc.label}" does not exist in the repository' + (f' "{exc.repository}"' if exc.repository else "") + ',\nor the backup did not complete successfully.',
+        reason=f'The backup label "{exc.label}" does not exist in the repository'
+        + (f' "{exc.repository}"' if exc.repository else "")
+        + ",\nor the backup did not complete successfully.",
         what_to_do=[
             "List available backups by querying the backup history table:\n     SELECT label, backup_type, status, finished_at FROM ops.backup_history ORDER BY finished_at DESC;",
-            "Check whether the backup completed successfully using StarRocks SQL:" + (f"\n     SHOW BACKUP FROM `{exc.repository}`;" if exc.repository else "\n     SHOW BACKUP;"),
+            "Check whether the backup completed successfully using StarRocks SQL:"
+            + (
+                f"\n     SHOW BACKUP FROM `{exc.repository}`;"
+                if exc.repository
+                else "\n     SHOW BACKUP;"
+            ),
             "Verify that the backup label spelling is correct.",
         ],
         inputs={"--config": config, "--target-label": exc.label, "Repository": exc.repository},
@@ -78,7 +88,9 @@ def handle_no_successful_full_backup_found_error(
         reason=f'No successful full backup was found before the incremental backup "{exc.incremental_label}".\nIncremental backups require a base full backup to restore from.',
         what_to_do=[
             "Verify that a full backup was created before this incremental backup:\n     SELECT label, backup_type, status, finished_at FROM ops.backup_history WHERE backup_type = 'full' AND status = 'FINISHED' ORDER BY finished_at DESC;",
-            "Run a full backup first:\n     starrocks-br backup full --config " + (config if config else "<config.yaml>") + " --group <group_name>",
+            "Run a full backup first:\n     starrocks-br backup full --config "
+            + (config if config else "<config.yaml>")
+            + " --group <group_name>",
             "Check that the full backup completed successfully before running the incremental backup",
         ],
         inputs={"--target-label": exc.incremental_label, "--config": config},
@@ -93,11 +105,21 @@ def handle_table_not_found_in_backup_error(
         title="TABLE NOT FOUND",
         reason=f'Table "{exc.table}" was not found in backup "{exc.label}" for database "{exc.database}".',
         what_to_do=[
-            "List all tables in the backup:" + (f"\n     SELECT DISTINCT database_name, table_name FROM ops.backup_partitions WHERE label = '{exc.label}';" if config else ""),
+            "List all tables in the backup:"
+            + (
+                f"\n     SELECT DISTINCT database_name, table_name FROM ops.backup_partitions WHERE label = '{exc.label}';"
+                if config
+                else ""
+            ),
             "Verify the table name spelling is correct",
             f"Ensure the table was included in the backup {exc.label}",
         ],
-        inputs={"--table": exc.table, "--target-label": exc.label, "Database": exc.database, "--config": config},
+        inputs={
+            "--table": exc.table,
+            "--target-label": exc.label,
+            "Database": exc.database,
+            "--config": config,
+        },
         help_links=["starrocks-br restore --help"],
     )
 
@@ -130,7 +152,9 @@ def handle_config_file_not_found_error(exc: exceptions.ConfigFileNotFoundError) 
     )
 
 
-def handle_config_validation_error(exc: exceptions.ConfigValidationError, config: str = None) -> None:
+def handle_config_validation_error(
+    exc: exceptions.ConfigValidationError, config: str = None
+) -> None:
     display_structured_error(
         title="CONFIGURATION ERROR",
         reason=str(exc),
@@ -160,26 +184,35 @@ def handle_cluster_health_check_failed_error(
     )
 
 
-def handle_snapshot_not_found_error(exc: exceptions.SnapshotNotFoundError, config: str = None) -> None:
+def handle_snapshot_not_found_error(
+    exc: exceptions.SnapshotNotFoundError, config: str = None
+) -> None:
     display_structured_error(
         title="SNAPSHOT NOT FOUND",
         reason=f'Snapshot "{exc.snapshot_name}" was not found in repository "{exc.repository}".',
         what_to_do=[
             f"List available snapshots:\n     SHOW SNAPSHOT ON {exc.repository};",
             "Verify the snapshot name spelling is correct",
-            "Ensure the backup completed successfully:\n     SELECT * FROM ops.backup_history WHERE label = '" + exc.snapshot_name + "';",
+            "Ensure the backup completed successfully:\n     SELECT * FROM ops.backup_history WHERE label = '"
+            + exc.snapshot_name
+            + "';",
         ],
         inputs={"Snapshot": exc.snapshot_name, "Repository": exc.repository, "--config": config},
         help_links=["starrocks-br restore --help"],
     )
 
 
-def handle_no_partitions_found_error(exc: exceptions.NoPartitionsFoundError, config: str = None, group: str = None) -> None:
+def handle_no_partitions_found_error(
+    exc: exceptions.NoPartitionsFoundError, config: str = None, group: str = None
+) -> None:
     display_structured_error(
         title="NO PARTITIONS FOUND",
-        reason="No partitions were found to backup" + (f" for group '{exc.group_name}'" if exc.group_name else "") + ".",
+        reason="No partitions were found to backup"
+        + (f" for group '{exc.group_name}'" if exc.group_name else "")
+        + ".",
         what_to_do=[
-            "Verify that the inventory group exists in ops.table_inventory:\n     SELECT * FROM ops.table_inventory WHERE inventory_group = " + (f"'{exc.group_name}';" if exc.group_name else "'<your_group>';"),
+            "Verify that the inventory group exists in ops.table_inventory:\n     SELECT * FROM ops.table_inventory WHERE inventory_group = "
+            + (f"'{exc.group_name}';" if exc.group_name else "'<your_group>';"),
             "Check that the tables in the group have partitions",
             "Ensure the baseline backup date is correct",
         ],
@@ -188,16 +221,33 @@ def handle_no_partitions_found_error(exc: exceptions.NoPartitionsFoundError, con
     )
 
 
-def handle_no_tables_found_error(exc: exceptions.NoTablesFoundError, config: str = None, target_label: str = None) -> None:
+def handle_no_tables_found_error(
+    exc: exceptions.NoTablesFoundError, config: str = None, target_label: str = None
+) -> None:
     display_structured_error(
         title="NO TABLES FOUND",
-        reason="No tables were found" + (f" in backup '{exc.label}' for group '{exc.group}'" if exc.group and exc.label else f" in backup '{exc.label}'" if exc.label else "") + ".",
+        reason="No tables were found"
+        + (
+            f" in backup '{exc.label}' for group '{exc.group}'"
+            if exc.group and exc.label
+            else f" in backup '{exc.label}'"
+            if exc.label
+            else ""
+        )
+        + ".",
         what_to_do=[
-            "Verify that tables exist in the backup manifest:\n     SELECT DISTINCT database_name, table_name FROM ops.backup_partitions WHERE label = " + (f"'{exc.label}';" if exc.label else "'<label>';"),
-            "Check that the group name is correct in ops.table_inventory" if exc.group else "Verify the backup completed successfully",
+            "Verify that tables exist in the backup manifest:\n     SELECT DISTINCT database_name, table_name FROM ops.backup_partitions WHERE label = "
+            + (f"'{exc.label}';" if exc.label else "'<label>';"),
+            "Check that the group name is correct in ops.table_inventory"
+            if exc.group
+            else "Verify the backup completed successfully",
             "List available backups:\n     SELECT label, backup_type, status, finished_at FROM ops.backup_history ORDER BY finished_at DESC;",
         ],
-        inputs={"--target-label": exc.label or target_label, "--group": exc.group, "--config": config},
+        inputs={
+            "--target-label": exc.label or target_label,
+            "--group": exc.group,
+            "--config": config,
+        },
         help_links=["starrocks-br restore --help"],
     )
 

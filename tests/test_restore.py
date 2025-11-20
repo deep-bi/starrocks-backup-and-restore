@@ -838,7 +838,9 @@ def test_should_raise_error_when_target_label_not_found(mocker):
     db = mocker.Mock()
     db.query.return_value = []
 
-    with pytest.raises(exceptions.BackupLabelNotFoundError, match="Backup label 'nonexistent' not found"):
+    with pytest.raises(
+        exceptions.BackupLabelNotFoundError, match="Backup label 'nonexistent' not found"
+    ):
         restore.find_restore_pair(db, "nonexistent")
 
 
@@ -852,7 +854,10 @@ def test_should_raise_error_when_incremental_has_no_full_backup(mocker):
         [],  # No full backup found
     ]
 
-    with pytest.raises(exceptions.NoSuccessfulFullBackupFoundError, match="No successful full backup found before incremental"):
+    with pytest.raises(
+        exceptions.NoSuccessfulFullBackupFoundError,
+        match="No successful full backup found before incremental",
+    ):
         restore.find_restore_pair(db, "sales_db_20251016_inc")
 
 
@@ -973,7 +978,9 @@ def test_should_raise_value_error_when_table_not_found_in_backup(mocker):
         ("sales_db", "dim_customers"),
     ]
 
-    with pytest.raises(exceptions.TableNotFoundInBackupError, match="Table 'nonexistent_table' not found in backup"):
+    with pytest.raises(
+        exceptions.TableNotFoundInBackupError, match="Table 'nonexistent_table' not found in backup"
+    ):
         restore.get_tables_from_backup(
             db, "sales_db_20251015_full", table="nonexistent_table", database="sales_db"
         )
@@ -985,7 +992,9 @@ def test_should_raise_value_error_when_table_and_group_both_specified(mocker):
 
     db = mocker.Mock()
 
-    with pytest.raises(exceptions.InvalidTableNameError, match="Cannot specify both --group and --table"):
+    with pytest.raises(
+        exceptions.InvalidTableNameError, match="Cannot specify both --group and --table"
+    ):
         restore.get_tables_from_backup(
             db,
             "sales_db_20251015_full",
@@ -1001,7 +1010,10 @@ def test_should_raise_value_error_when_table_specified_without_database(mocker):
 
     db = mocker.Mock()
 
-    with pytest.raises(exceptions.InvalidTableNameError, match="database parameter is required when table is specified"):
+    with pytest.raises(
+        exceptions.InvalidTableNameError,
+        match="database parameter is required when table is specified",
+    ):
         restore.get_tables_from_backup(db, "sales_db_20251015_full", table="fact_sales")
 
 
@@ -1032,7 +1044,9 @@ def test_should_return_empty_list_when_table_not_in_specified_database(mocker):
         ("orders_db", "fact_orders"),
     ]
 
-    with pytest.raises(exceptions.TableNotFoundInBackupError, match="Table 'fact_orders' not found in backup"):
+    with pytest.raises(
+        exceptions.TableNotFoundInBackupError, match="Table 'fact_orders' not found in backup"
+    ):
         restore.get_tables_from_backup(
             db, "multi_db_backup", table="fact_orders", database="sales_db"
         )

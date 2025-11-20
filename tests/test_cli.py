@@ -1240,9 +1240,10 @@ def test_restore_displays_rich_error_for_backup_label_not_found(
     runner = CliRunner()
 
     from starrocks_br import exceptions
+
     mocker.patch(
         "starrocks_br.restore.find_restore_pair",
-        side_effect=exceptions.BackupLabelNotFoundError("nonexistent_label", "test_repo")
+        side_effect=exceptions.BackupLabelNotFoundError("nonexistent_label", "test_repo"),
     )
 
     result = runner.invoke(
@@ -1299,10 +1300,11 @@ def test_restore_displays_rich_error_for_table_not_found_in_backup(
     runner = CliRunner()
 
     from starrocks_br import exceptions
+
     mocker.patch("starrocks_br.restore.find_restore_pair", return_value=["test_backup"])
     mocker.patch(
         "starrocks_br.restore.get_tables_from_backup",
-        side_effect=exceptions.TableNotFoundInBackupError("my_table", "test_backup", "test_db")
+        side_effect=exceptions.TableNotFoundInBackupError("my_table", "test_backup", "test_db"),
     )
 
     result = runner.invoke(
@@ -1334,6 +1336,7 @@ def test_cli_verbose_flag_enables_debug_logging(config_file, mocker):
     runner.invoke(cli.cli, ["--verbose", "restore", "--help"])
 
     import logging
+
     setup_logging_mock.assert_called_once_with(level=logging.DEBUG)
 
 
