@@ -57,5 +57,3 @@ def test_should_generate_job_id_when_missing(mocker):
     sql = db.execute.call_args[0][0]
     assert "INSERT INTO ops.backup_history" in sql
     assert "sales_db_20251015_monthly" in sql
-
-

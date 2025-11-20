@@ -1,10 +1,11 @@
-import time
-import datetime
 import re
-from typing import Dict, Literal, Optional, Tuple
-from . import history, concurrency, logger, timezone
+import time
+from typing import Literal, Optional
 
-MAX_POLLS = 86400 # 1 day
+from . import concurrency, history, logger, timezone
+
+MAX_POLLS = 86400  # 1 day
+
 
 def _calculate_next_interval(current_interval: float, max_interval: float) -> float:
     """Calculate the next polling interval using exponential backoff.
@@ -19,9 +20,11 @@ def _calculate_next_interval(current_interval: float, max_interval: float) -> fl
     return min(current_interval * 2, max_interval)
 
 
-def submit_backup_command(db, backup_command: str) -> Tuple[bool, Optional[str], Optional[Dict[str, str]]]:
+def submit_backup_command(
+    db, backup_command: str
+) -> tuple[bool, Optional[str], Optional[dict[str, str]]]:
     """Submit a backup command to StarRocks.
-    
+
     Returns (success, error_message, error_details).
     error_details is a dict with keys like 'error_type' and 'snapshot_name' for specific error cases.
     """
@@ -31,19 +34,16 @@ def submit_backup_command(db, backup_command: str) -> Tuple[bool, Optional[str],
     except Exception as e:
         error_str = str(e)
         error_type = type(e).__name__
-        
+
         snapshot_exists_match = _check_snapshot_exists_error(e, error_str)
         if snapshot_exists_match:
             snapshot_name = snapshot_exists_match
-            error_details = {
-                'error_type': 'snapshot_exists',
-                'snapshot_name': snapshot_name
-            }
+            error_details = {"error_type": "snapshot_exists", "snapshot_name": snapshot_name}
             error_msg = f"Snapshot '{snapshot_name}' already exists in repository"
             logger.error(error_msg)
             logger.error(f"backup_command: {backup_command}")
             return False, error_msg, error_details
-        
+
         error_msg = f"Failed to submit backup command: {error_type}: {error_str}"
         logger.error(error_msg)
         logger.error(f"backup_command: {backup_command}")
@@ -52,33 +52,40 @@ def submit_backup_command(db, backup_command: str) -> Tuple[bool, Optional[str],
 
 def _check_snapshot_exists_error(exception: Exception, error_str: str) -> Optional[str]:
     """Check if the error is a 'snapshot already exists' error and extract snapshot name.
-    
+
     Args:
         exception: The exception that was raised
         error_str: String representation of the error
-        
+
     Returns:
         Snapshot name if this is a snapshot exists error, None otherwise
     """
     snapshot_name_pattern = r"Snapshot with name '([^']+)' already exist"
     error_lower = error_str.lower()
-    
+
     is_snapshot_exists_error = (
-        "already exist" in error_lower or 
-        "already exists" in error_lower or
-        ("5064" in error_str and "already exist" in error_lower) or
-        (hasattr(exception, 'errno') and exception.errno == 5064)
+        "already exist" in error_lower
+        or "already exists" in error_lower
+        or ("5064" in error_str and "already exist" in error_lower)
+        or (hasattr(exception, "errno") and exception.errno == 5064)
     )
-    
+
     if is_snapshot_exists_error:
         match = re.search(snapshot_name_pattern, error_str, re.IGNORECASE)
         if match:
             return match.group(1)
-    
+
     return None
 
 
-def poll_backup_status(db, label: str, database: str, max_polls: int = MAX_POLLS, poll_interval: float = 1.0, max_poll_interval: float = 60.0) -> Dict[str, str]:
+def poll_backup_status(
+    db,
+    label: str,
+    database: str,
+    max_polls: int = MAX_POLLS,
+    poll_interval: float = 1.0,
+    max_poll_interval: float = 60.0,
+) -> dict[str, str]:
     """Poll backup status until completion or timeout.
 
     Note: SHOW BACKUP only returns the LAST backup in a database.
@@ -157,12 +164,12 @@ def execute_backup(
     poll_interval: float = 1.0,
     *,
     repository: str,
-    backup_type: Literal['incremental', 'full'] = None,
+    backup_type: Literal["incremental", "full"] = None,
     scope: str = "backup",
     database: Optional[str] = None,
-) -> Dict:
+) -> dict:
     """Execute a complete backup workflow: submit command and monitor progress.
-    
+
     Args:
         db: Database connection
         backup_command: Backup SQL command to execute
@@ -172,31 +179,31 @@ def execute_backup(
         backup_type: Type of backup (for logging)
         scope: Job scope (for concurrency control)
         database: Database name (required for SHOW BACKUP)
-    
+
     Returns dictionary with keys: success, final_status, error_message
     """
     label = _extract_label_from_command(backup_command)
-    
+
     if not database:
         database = _extract_database_from_command(backup_command)
 
     cluster_tz = db.timezone
     started_at = timezone.get_current_time_in_cluster_tz(cluster_tz)
-    
+
     success, submit_error, error_details = submit_backup_command(db, backup_command)
     if not success:
         result = {
             "success": False,
             "final_status": None,
-            "error_message": submit_error or "Failed to submit backup command (unknown error)"
+            "error_message": submit_error or "Failed to submit backup command (unknown error)",
         }
         if error_details:
             result["error_details"] = error_details
         return result
-    
+
     try:
         final_status = poll_backup_status(db, label, database, max_polls, poll_interval)
-        
+
         success = final_status["state"] == "FINISHED"
 
         try:
@@ -217,30 +224,34 @@ def execute_backup(
             pass
 
         try:
-            concurrency.complete_job_slot(db, scope=scope, label=label, final_state=final_status["state"])
+            concurrency.complete_job_slot(
+                db, scope=scope, label=label, final_state=final_status["state"]
+            )
         except Exception:
             pass
-        
+
         return {
             "success": success,
             "final_status": final_status,
-            "error_message": None if success else _build_error_message(final_status, label, database)
+            "error_message": None
+            if success
+            else _build_error_message(final_status, label, database),
         }
-        
+
     except Exception as e:
         error_msg = f"Unexpected error during backup execution: {type(e).__name__}: {str(e)}"
         logger.error(error_msg)
         return {
             "success": False,
             "final_status": {"state": "ERROR", "label": label},
-            "error_message": error_msg
+            "error_message": error_msg,
         }
 
 
-def _build_error_message(final_status: Dict, label: str, database: str) -> str:
+def _build_error_message(final_status: dict, label: str, database: str) -> str:
     """Build a descriptive error message based on backup final status."""
-    state = final_status.get('state', 'UNKNOWN')
-    
+    state = final_status.get("state", "UNKNOWN")
+
     if state == "LOST":
         return (
             f"Backup tracking lost for '{label}' in database '{database}'. "
@@ -272,42 +283,42 @@ def _build_error_message(final_status: Dict, label: str, database: str) -> str:
 
 def _extract_label_from_command(backup_command: str) -> str:
     """Extract the snapshot label from a backup command.
-    
+
     This is a simple parser for StarRocks backup commands.
     Handles both formats:
     - BACKUP DATABASE db SNAPSHOT label TO repo
     - BACKUP SNAPSHOT label TO repo (legacy)
     """
-    lines = backup_command.strip().split('\n')
-    
+    lines = backup_command.strip().split("\n")
+
     for line in lines:
         line = line.strip()
-        if line.startswith('BACKUP DATABASE'):
+        if line.startswith("BACKUP DATABASE"):
             parts = line.split()
             for i, part in enumerate(parts):
-                if part == 'SNAPSHOT' and i + 1 < len(parts):
+                if part == "SNAPSHOT" and i + 1 < len(parts):
                     return parts[i + 1]
-        elif line.startswith('BACKUP SNAPSHOT'):
+        elif line.startswith("BACKUP SNAPSHOT"):
             # Legacy syntax
             parts = line.split()
             if len(parts) >= 3:
                 return parts[2]
-    
+
     return "unknown_backup"
 
 
 def _extract_database_from_command(backup_command: str) -> str:
     """Extract the database name from a backup command.
-    
+
     Parses: BACKUP DATABASE db_name SNAPSHOT label ...
     """
-    lines = backup_command.strip().split('\n')
-    
+    lines = backup_command.strip().split("\n")
+
     for line in lines:
         line = line.strip()
-        if line.startswith('BACKUP DATABASE'):
+        if line.startswith("BACKUP DATABASE"):
             parts = line.split()
             if len(parts) >= 3:
                 return parts[2]
-    
+
     return "unknown_database"

@@ -1,7 +1,4 @@
-from typing import Tuple
-
-
-def check_cluster_health(db) -> Tuple[bool, str]:
+def check_cluster_health(db) -> tuple[bool, str]:
     """Check FE/BE health via SHOW FRONTENDS/BACKENDS.
 
     Returns (ok, message).
@@ -30,5 +27,3 @@ def check_cluster_health(db) -> Tuple[bool, str]:
     if any_dead:
         return False, "Cluster unhealthy: some FE/BE are DEAD or not READY"
     return True, "Cluster healthy: all FE/BE are ALIVE and READY"
-
-
