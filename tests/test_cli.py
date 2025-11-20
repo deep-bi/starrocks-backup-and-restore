@@ -935,7 +935,8 @@ def test_cli_main_group_requires_subcommand():
     """Test the main CLI group command requires a subcommand."""
     runner = CliRunner()
     result = runner.invoke(cli.cli, [])
-    assert result.exit_code == 2
+    # Click behavior: older versions return 0, newer return 2
+    assert result.exit_code in (0, 2)
     assert "Usage:" in result.output
 
 
@@ -943,7 +944,8 @@ def test_backup_group_requires_subcommand():
     """Test the backup group command requires a subcommand."""
     runner = CliRunner()
     result = runner.invoke(cli.backup, [])
-    assert result.exit_code == 2
+    # Click behavior: older versions return 0, newer return 2
+    assert result.exit_code in (0, 2)
     assert "Usage:" in result.output
 
 
