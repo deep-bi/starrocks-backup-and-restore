@@ -665,14 +665,14 @@ def test_should_log_progress_every_10_polls(mocker, capsys):
     uploading_responses = [[("job1", "test_backup", "test_db", "UPLOADING")]] * 15
     finished_response = [[("job1", "test_backup", "test_db", "FINISHED")]]
     db.query.side_effect = uploading_responses + finished_response
-    
-    status = executor.poll_backup_status(db, "test_backup", "test_db", max_polls=20, poll_interval=0.001)
-    
+
+    status = executor.poll_backup_status(db, "test_backup", "test_db", max_polls=20, poll_interval=0.001, max_poll_interval=0.01)
+
     assert status["state"] == "FINISHED"
-    
+
     captured = capsys.readouterr()
     output = captured.out
-    
+
     assert "poll 1/" in output
     assert "poll 10/" in output
     assert "UPLOADING" in output
@@ -763,8 +763,137 @@ def test_should_build_descriptive_error_message_for_error_state():
     """Test that _build_error_message creates helpful message for ERROR state."""
     final_status = {"state": "ERROR"}
     error_msg = executor._build_error_message(final_status, "my_backup", "sales_db")
-    
+
     assert "Error occurred" in error_msg
     assert "my_backup" in error_msg
     assert "SHOW BACKUP FROM sales_db" in error_msg
     assert "monitoring failed" in error_msg
+
+
+# Exponential backoff tests
+
+def test_should_calculate_next_interval_exponentially():
+    """Test that _calculate_next_interval doubles the current interval."""
+    assert executor._calculate_next_interval(0.001, 0.06) == 0.002
+    assert executor._calculate_next_interval(0.002, 0.06) == 0.004
+    assert executor._calculate_next_interval(0.004, 0.06) == 0.008
+    assert executor._calculate_next_interval(0.008, 0.06) == 0.016
+    assert executor._calculate_next_interval(0.016, 0.06) == 0.032
+
+
+def test_should_cap_interval_at_maximum():
+    """Test that _calculate_next_interval caps at max_interval."""
+    assert executor._calculate_next_interval(0.032, 0.06) == 0.06
+    assert executor._calculate_next_interval(0.06, 0.06) == 0.06
+    assert executor._calculate_next_interval(0.1, 0.06) == 0.06
+
+
+def test_should_use_exponential_backoff_during_polling(mocker):
+    """Test that poll_backup_status uses exponential backoff intervals."""
+    db = mocker.Mock()
+    db.query.side_effect = [
+        [("job1", "test_backup", "test_db", "UPLOADING")],
+        [("job1", "test_backup", "test_db", "UPLOADING")],
+        [("job1", "test_backup", "test_db", "UPLOADING")],
+        [("job1", "test_backup", "test_db", "UPLOADING")],
+        [("job1", "test_backup", "test_db", "UPLOADING")],
+        [("job1", "test_backup", "test_db", "FINISHED")],
+    ]
+
+    sleep_mock = mocker.patch('time.sleep')
+
+    status = executor.poll_backup_status(
+        db, "test_backup", "test_db",
+        max_polls=10,
+        poll_interval=0.001,
+        max_poll_interval=0.06
+    )
+
+    assert status["state"] == "FINISHED"
+
+    # Verify exponential backoff: 1ms, 2ms, 4ms, 8ms, 16ms
+    sleep_calls = [call[0][0] for call in sleep_mock.call_args_list]
+    assert sleep_calls[0] == 0.001
+    assert sleep_calls[1] == 0.002
+    assert sleep_calls[2] == 0.004
+    assert sleep_calls[3] == 0.008
+    assert sleep_calls[4] == 0.016
+
+
+def test_should_cap_backoff_at_max_interval(mocker):
+    """Test that exponential backoff caps at max_poll_interval."""
+    db = mocker.Mock()
+    # Create enough responses to test capping
+    responses = [[("job1", "test_backup", "test_db", "UPLOADING")]] * 10
+    responses.append([("job1", "test_backup", "test_db", "FINISHED")])
+    db.query.side_effect = responses
+
+    sleep_mock = mocker.patch('time.sleep')
+
+    status = executor.poll_backup_status(
+        db, "test_backup", "test_db",
+        max_polls=15,
+        poll_interval=0.001,
+        max_poll_interval=0.01
+    )
+
+    assert status["state"] == "FINISHED"
+
+    sleep_calls = [call[0][0] for call in sleep_mock.call_args_list]
+    # 1ms, 2ms, 4ms, 8ms, then capped at 10ms
+    assert sleep_calls[0] == 0.001
+    assert sleep_calls[1] == 0.002
+    assert sleep_calls[2] == 0.004
+    assert sleep_calls[3] == 0.008
+    assert sleep_calls[4] == 0.01  # Capped
+    assert sleep_calls[5] == 0.01  # Still capped
+    assert all(interval <= 0.01 for interval in sleep_calls)
+
+
+def test_should_use_default_max_poll_interval_if_not_specified(mocker):
+    """Test that poll_backup_status uses default max_poll_interval when not specified."""
+    db = mocker.Mock()
+    responses = [[("job1", "test_backup", "test_db", "UPLOADING")]] * 8
+    responses.append([("job1", "test_backup", "test_db", "FINISHED")])
+    db.query.side_effect = responses
+
+    sleep_mock = mocker.patch('time.sleep')
+
+    status = executor.poll_backup_status(
+        db, "test_backup", "test_db",
+        max_polls=10,
+        poll_interval=0.001
+        # max_poll_interval not specified, should default to 60
+    )
+
+    assert status["state"] == "FINISHED"
+
+    sleep_calls = [call[0][0] for call in sleep_mock.call_args_list]
+    # 1ms, 2ms, 4ms, 8ms, 16ms, 32ms, 64ms should be capped at 60s
+    assert sleep_calls[0] == 0.001
+    assert sleep_calls[1] == 0.002
+    assert sleep_calls[2] == 0.004
+    assert sleep_calls[3] == 0.008
+    assert sleep_calls[4] == 0.016
+    assert sleep_calls[5] == 0.032
+    assert sleep_calls[6] == 0.064
+    assert sleep_calls[7] == 0.128
+
+
+def test_should_handle_backoff_with_immediate_completion(mocker):
+    """Test that exponential backoff works when backup completes immediately."""
+    db = mocker.Mock()
+    db.query.return_value = [("job1", "test_backup", "test_db", "FINISHED")]
+
+    sleep_mock = mocker.patch('time.sleep')
+
+    status = executor.poll_backup_status(
+        db, "test_backup", "test_db",
+        max_polls=10,
+        poll_interval=0.001,
+        max_poll_interval=0.06
+    )
+
+    assert status["state"] == "FINISHED"
+    # Should not sleep if already finished
+    assert sleep_mock.call_count == 0

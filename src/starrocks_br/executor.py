@@ -6,6 +6,19 @@ from . import history, concurrency, logger, timezone
 
 MAX_POLLS = 86400 # 1 day
 
+def _calculate_next_interval(current_interval: float, max_interval: float) -> float:
+    """Calculate the next polling interval using exponential backoff.
+
+    Args:
+        current_interval: Current polling interval in seconds
+        max_interval: Maximum allowed interval in seconds
+
+    Returns:
+        Next interval (min of doubled current interval and max_interval)
+    """
+    return min(current_interval * 2, max_interval)
+
+
 def submit_backup_command(db, backup_command: str) -> Tuple[bool, Optional[str], Optional[Dict[str, str]]]:
     """Submit a backup command to StarRocks.
     
@@ -65,22 +78,23 @@ def _check_snapshot_exists_error(exception: Exception, error_str: str) -> Option
     return None
 
 
-def poll_backup_status(db, label: str, database: str, max_polls: int = MAX_POLLS, poll_interval: float = 1.0) -> Dict[str, str]:
+def poll_backup_status(db, label: str, database: str, max_polls: int = MAX_POLLS, poll_interval: float = 1.0, max_poll_interval: float = 60.0) -> Dict[str, str]:
     """Poll backup status until completion or timeout.
-    
+
     Note: SHOW BACKUP only returns the LAST backup in a database.
     We verify that the SnapshotName matches our expected label.
-    
+
     Important: If we see a different snapshot name, it means another backup
     operation overwrote ours and we've lost tracking (race condition).
-    
+
     Args:
         db: Database connection
         label: Expected snapshot name (label) to monitor
         database: Database name where backup was submitted
         max_polls: Maximum number of polling attempts
-        poll_interval: Seconds to wait between polls
-    
+        poll_interval: Initial seconds to wait between polls (exponentially increases)
+        max_poll_interval: Maximum interval between polls (default 60 seconds)
+
     Returns dictionary with keys: state, label
     Possible states: FINISHED, CANCELLED, TIMEOUT, ERROR, LOST
     """
@@ -88,47 +102,51 @@ def poll_backup_status(db, label: str, database: str, max_polls: int = MAX_POLLS
     first_poll = True
     last_state = None
     poll_count = 0
-    
+    current_interval = poll_interval
+
     for _ in range(max_polls):
         poll_count += 1
         try:
             rows = db.query(query)
-            
+
             if not rows:
-                time.sleep(poll_interval)
+                time.sleep(current_interval)
+                current_interval = _calculate_next_interval(current_interval, max_poll_interval)
                 continue
-            
+
             result = rows[0]
-            
+
             if isinstance(result, dict):
                 snapshot_name = result.get("SnapshotName", "")
                 state = result.get("State", "UNKNOWN")
             else:
                 snapshot_name = result[1] if len(result) > 1 else ""
                 state = result[3] if len(result) > 3 else "UNKNOWN"
-            
+
             if snapshot_name != label:
                 if first_poll:
                     first_poll = False
-                    time.sleep(poll_interval)
+                    time.sleep(current_interval)
+                    current_interval = _calculate_next_interval(current_interval, max_poll_interval)
                     continue
                 else:
                     return {"state": "LOST", "label": label}
-            
+
             first_poll = False
-            
+
             if state != last_state or poll_count % 10 == 0:
                 logger.progress(f"Backup status: {state} (poll {poll_count}/{max_polls})")
                 last_state = state
-            
+
             if state in ["FINISHED", "CANCELLED"]:
                 return {"state": state, "label": label}
-            
-            time.sleep(poll_interval)
-            
+
+            time.sleep(current_interval)
+            current_interval = _calculate_next_interval(current_interval, max_poll_interval)
+
         except Exception:
             return {"state": "ERROR", "label": label}
-    
+
     return {"state": "TIMEOUT", "label": label}
 
 

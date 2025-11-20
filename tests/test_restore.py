@@ -364,20 +364,20 @@ def test_should_execute_restore_with_custom_polling_parameters(db_with_timezone)
         [{"Label": "restore_job", "State": "PENDING"}],
         [{"Label": "restore_job", "State": "FINISHED"}],
     ]
-    
+
     restore_command = "RESTORE SNAPSHOT restore_job FROM repo"
-    
+
     result = restore.execute_restore(
-        db, 
-        restore_command, 
+        db,
+        restore_command,
         backup_label="restore_job",
         restore_type="partition",
         repository="custom_repo",
         database="test_db",
-        max_polls=10, 
-        poll_interval=0.5
+        max_polls=10,
+        poll_interval=0.001
     )
-    
+
     assert result["success"] is True
     assert result["final_status"]["state"] == "FINISHED"
 
@@ -1263,12 +1263,12 @@ def test_should_use_cluster_timezone_for_restore_timestamps(mocker):
     db.timezone = "Asia/Shanghai"
     db.execute.return_value = None
     db.query.return_value = [{"Label": "test_label", "State": "FINISHED"}]
-    
+
     log_restore = mocker.patch("starrocks_br.history.log_restore")
     complete_slot = mocker.patch("starrocks_br.concurrency.complete_job_slot")
     mock_get_time = mocker.patch("starrocks_br.timezone.get_current_time_in_cluster_tz")
     mock_get_time.return_value = "2025-11-20 15:30:00"
-    
+
     restore.execute_restore(
         db,
         "RESTORE SNAPSHOT test FROM repo",
@@ -1279,11 +1279,140 @@ def test_should_use_cluster_timezone_for_restore_timestamps(mocker):
         max_polls=5,
         poll_interval=0.001,
     )
-    
+
     assert mock_get_time.call_count == 2
     assert mock_get_time.call_args_list[0][0][0] == "Asia/Shanghai"
     assert mock_get_time.call_args_list[1][0][0] == "Asia/Shanghai"
-    
+
     log_restore_call = log_restore.call_args[0][1]
     assert log_restore_call["started_at"] == "2025-11-20 15:30:00"
     assert log_restore_call["finished_at"] == "2025-11-20 15:30:00"
+
+
+# Exponential backoff tests
+
+def test_should_calculate_next_interval_exponentially():
+    """Test that _calculate_next_interval doubles the current interval."""
+    assert restore._calculate_next_interval(0.001, 0.06) == 0.002
+    assert restore._calculate_next_interval(0.002, 0.06) == 0.004
+    assert restore._calculate_next_interval(0.004, 0.06) == 0.008
+    assert restore._calculate_next_interval(0.008, 0.06) == 0.016
+    assert restore._calculate_next_interval(0.016, 0.06) == 0.032
+
+
+def test_should_cap_interval_at_maximum():
+    """Test that _calculate_next_interval caps at max_interval."""
+    assert restore._calculate_next_interval(0.032, 0.06) == 0.06
+    assert restore._calculate_next_interval(0.06, 0.06) == 0.06
+    assert restore._calculate_next_interval(0.1, 0.06) == 0.06
+
+
+def test_should_use_exponential_backoff_during_restore_polling(mocker):
+    """Test that poll_restore_status uses exponential backoff intervals."""
+    db = mocker.Mock()
+    db.query.side_effect = [
+        [{"Label": "restore_job", "State": "RUNNING"}],
+        [{"Label": "restore_job", "State": "RUNNING"}],
+        [{"Label": "restore_job", "State": "RUNNING"}],
+        [{"Label": "restore_job", "State": "RUNNING"}],
+        [{"Label": "restore_job", "State": "RUNNING"}],
+        [{"Label": "restore_job", "State": "FINISHED"}],
+    ]
+
+    sleep_mock = mocker.patch('time.sleep')
+
+    status = restore.poll_restore_status(
+        db, "restore_job", "test_db",
+        max_polls=10,
+        poll_interval=0.001,
+        max_poll_interval=0.06
+    )
+
+    assert status["state"] == "FINISHED"
+
+    # Verify exponential backoff: 1ms, 2ms, 4ms, 8ms, 16ms
+    sleep_calls = [call[0][0] for call in sleep_mock.call_args_list]
+    assert sleep_calls[0] == 0.001
+    assert sleep_calls[1] == 0.002
+    assert sleep_calls[2] == 0.004
+    assert sleep_calls[3] == 0.008
+    assert sleep_calls[4] == 0.016
+
+
+def test_should_cap_restore_backoff_at_max_interval(mocker):
+    """Test that restore exponential backoff caps at max_poll_interval."""
+    db = mocker.Mock()
+    # Create enough responses to test capping
+    responses = [[{"Label": "restore_job", "State": "RUNNING"}]] * 10
+    responses.append([{"Label": "restore_job", "State": "FINISHED"}])
+    db.query.side_effect = responses
+
+    sleep_mock = mocker.patch('time.sleep')
+
+    status = restore.poll_restore_status(
+        db, "restore_job", "test_db",
+        max_polls=15,
+        poll_interval=0.001,
+        max_poll_interval=0.01
+    )
+
+    assert status["state"] == "FINISHED"
+
+    sleep_calls = [call[0][0] for call in sleep_mock.call_args_list]
+    # 1ms, 2ms, 4ms, 8ms, then capped at 10ms
+    assert sleep_calls[0] == 0.001
+    assert sleep_calls[1] == 0.002
+    assert sleep_calls[2] == 0.004
+    assert sleep_calls[3] == 0.008
+    assert sleep_calls[4] == 0.01  # Capped
+    assert sleep_calls[5] == 0.01  # Still capped
+    assert all(interval <= 0.01 for interval in sleep_calls)
+
+
+def test_should_use_default_max_poll_interval_for_restore(mocker):
+    """Test that poll_restore_status uses default max_poll_interval when not specified."""
+    db = mocker.Mock()
+    responses = [[{"Label": "restore_job", "State": "RUNNING"}]] * 8
+    responses.append([{"Label": "restore_job", "State": "FINISHED"}])
+    db.query.side_effect = responses
+
+    sleep_mock = mocker.patch('time.sleep')
+
+    status = restore.poll_restore_status(
+        db, "restore_job", "test_db",
+        max_polls=10,
+        poll_interval=0.001
+        # max_poll_interval not specified, should default to 60
+    )
+
+    assert status["state"] == "FINISHED"
+
+    sleep_calls = [call[0][0] for call in sleep_mock.call_args_list]
+    # 1ms, 2ms, 4ms, 8ms, 16ms, 32ms, 64ms, 128ms
+    assert sleep_calls[0] == 0.001
+    assert sleep_calls[1] == 0.002
+    assert sleep_calls[2] == 0.004
+    assert sleep_calls[3] == 0.008
+    assert sleep_calls[4] == 0.016
+    assert sleep_calls[5] == 0.032
+    assert sleep_calls[6] == 0.064
+    assert sleep_calls[7] == 0.128
+
+
+def test_should_handle_restore_backoff_with_immediate_completion(mocker):
+    """Test that exponential backoff works when restore completes immediately."""
+    db = mocker.Mock()
+    db.query.return_value = [{"Label": "restore_job", "State": "FINISHED"}]
+
+    sleep_mock = mocker.patch('time.sleep')
+
+    status = restore.poll_restore_status(
+        db, "restore_job", "test_db",
+        max_polls=10,
+        poll_interval=0.001,
+        max_poll_interval=0.06
+    )
+
+    assert status["state"] == "FINISHED"
+    # Should not sleep if already finished
+    assert sleep_mock.call_count == 0

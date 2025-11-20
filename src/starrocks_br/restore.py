@@ -5,6 +5,19 @@ from . import history, concurrency, logger, utils, timezone
 
 MAX_POLLS = 86400 # 1 day
 
+def _calculate_next_interval(current_interval: float, max_interval: float) -> float:
+    """Calculate the next polling interval using exponential backoff.
+
+    Args:
+        current_interval: Current polling interval in seconds
+        max_interval: Maximum allowed interval in seconds
+
+    Returns:
+        Next interval (min of doubled current interval and max_interval)
+    """
+    return min(current_interval * 2, max_interval)
+
+
 def get_snapshot_timestamp(db, repo_name: str, snapshot_name: str) -> str:
     """Get the backup timestamp for a specific snapshot from the repository.
     
@@ -83,22 +96,23 @@ def build_database_restore_command(
     PROPERTIES ("backup_timestamp" = "{backup_timestamp}")"""
 
 
-def poll_restore_status(db, label: str, database: str, max_polls: int = MAX_POLLS, poll_interval: float = 1.0) -> Dict[str, str]:
+def poll_restore_status(db, label: str, database: str, max_polls: int = MAX_POLLS, poll_interval: float = 1.0, max_poll_interval: float = 60.0) -> Dict[str, str]:
     """Poll restore status until completion or timeout.
-    
+
     Note: SHOW RESTORE only returns the LAST restore in a database.
     We verify that the Label matches our expected label.
-    
+
     Important: If we see a different label, it means another restore
     operation overwrote ours and we've lost tracking (race condition).
-    
+
     Args:
         db: Database connection
         label: Expected snapshot label to monitor
         database: Database name where restore was submitted
         max_polls: Maximum number of polling attempts
-        poll_interval: Seconds to wait between polls
-    
+        poll_interval: Initial seconds to wait between polls (exponentially increases)
+        max_poll_interval: Maximum interval between polls (default 60 seconds)
+
     Returns dictionary with keys: state, label
     Possible states: FINISHED, CANCELLED, TIMEOUT, ERROR, LOST
     """
@@ -106,18 +120,20 @@ def poll_restore_status(db, label: str, database: str, max_polls: int = MAX_POLL
     first_poll = True
     last_state = None
     poll_count = 0
-    
+    current_interval = poll_interval
+
     for _ in range(max_polls):
         poll_count += 1
         try:
             rows = db.query(query)
-            
+
             if not rows:
-                time.sleep(poll_interval)
+                time.sleep(current_interval)
+                current_interval = _calculate_next_interval(current_interval, max_poll_interval)
                 continue
-            
+
             result = rows[0]
-            
+
             if isinstance(result, dict):
                 snapshot_label = result.get("Label", "")
                 state = result.get("State", "UNKNOWN")
@@ -125,29 +141,31 @@ def poll_restore_status(db, label: str, database: str, max_polls: int = MAX_POLL
                 # Tuple format: JobId, Label, Timestamp, DbName, State, ...
                 snapshot_label = result[1] if len(result) > 1 else ""
                 state = result[4] if len(result) > 4 else "UNKNOWN"
-            
+
             if snapshot_label != label and snapshot_label:
                 if first_poll:
                     first_poll = False
-                    time.sleep(poll_interval)
+                    time.sleep(current_interval)
+                    current_interval = _calculate_next_interval(current_interval, max_poll_interval)
                     continue
                 else:
                     return {"state": "LOST", "label": label}
-            
+
             first_poll = False
-            
+
             if state != last_state or poll_count % 10 == 0:
                 logger.progress(f"Restore status: {state} (poll {poll_count}/{max_polls})")
                 last_state = state
-            
+
             if state in ["FINISHED", "CANCELLED", "UNKNOWN"]:
                 return {"state": state, "label": label}
-            
-            time.sleep(poll_interval)
-            
+
+            time.sleep(current_interval)
+            current_interval = _calculate_next_interval(current_interval, max_poll_interval)
+
         except Exception:
             return {"state": "ERROR", "label": label}
-    
+
     return {"state": "TIMEOUT", "label": label}
 
 
