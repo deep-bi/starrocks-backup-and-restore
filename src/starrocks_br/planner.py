@@ -1,7 +1,7 @@
 import datetime
 import hashlib
 
-from starrocks_br import logger, timezone, utils
+from starrocks_br import exceptions, logger, timezone, utils
 
 
 def find_latest_full_backup(db, database: str) -> dict[str, str] | None:
@@ -83,16 +83,12 @@ def find_recent_partitions(
         """
         baseline_rows = db.query(baseline_query)
         if not baseline_rows:
-            raise ValueError(
-                f"Baseline backup '{baseline_backup_label}' not found or not successful"
-            )
+            raise exceptions.BackupLabelNotFoundError(baseline_backup_label)
         baseline_time_raw = baseline_rows[0][0]
     else:
         latest_backup = find_latest_full_backup(db, database)
         if not latest_backup:
-            raise ValueError(
-                f"No successful full backup found for database '{database}'. Run a full database backup first."
-            )
+            raise exceptions.NoFullBackupFoundError(database)
         baseline_time_raw = latest_backup["finished_at"]
 
     if isinstance(baseline_time_raw, datetime.datetime):

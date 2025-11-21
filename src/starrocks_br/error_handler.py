@@ -263,3 +263,45 @@ def handle_restore_operation_cancelled_error() -> None:
         ],
         help_links=["starrocks-br restore --help"],
     )
+
+
+def handle_concurrency_conflict_error(
+    exc: exceptions.ConcurrencyConflictError, config: str = None
+) -> None:
+    active_job_strings = [f"{job[0]}:{job[1]}" for job in exc.active_jobs]
+    first_label = exc.active_labels[0] if exc.active_labels else "unknown"
+
+    display_structured_error(
+        title="CONCURRENCY CONFLICT",
+        reason=f"Another '{exc.scope}' job is already running.\nOnly one job of the same type can run at a time to prevent conflicts.",
+        what_to_do=[
+            f"Wait for the active job to complete: {', '.join(active_job_strings)}",
+            f"Check the job status in ops.run_status:\n     SELECT * FROM ops.run_status WHERE label = '{first_label}' AND state = 'ACTIVE';",
+            f"If the job is stuck, cancel it manually:\n     UPDATE ops.run_status SET state = 'CANCELLED' WHERE label = '{first_label}' AND state = 'ACTIVE';",
+            "Verify the job is not actually running in StarRocks before cancelling it",
+        ],
+        inputs={
+            "--config": config,
+            "Scope": exc.scope,
+            "Active jobs": ", ".join(active_job_strings),
+        },
+        help_links=["Check ops.run_status table for job status"],
+    )
+
+
+def handle_no_full_backup_found_error(
+    exc: exceptions.NoFullBackupFoundError, config: str = None, group: str = None
+) -> None:
+    display_structured_error(
+        title="NO FULL BACKUP FOUND",
+        reason=f"No successful full backup was found for database '{exc.database}'.\nIncremental backups require a baseline full backup to compare against.",
+        what_to_do=[
+            "Run a full backup first:\n     starrocks-br backup full --config "
+            + (config if config else "<config.yaml>")
+            + f" --group {group if group else '<group_name>'}",
+            f"Verify no full backups exist for this database:\n     SELECT label, backup_type, status, finished_at FROM ops.backup_history WHERE backup_type = 'full' AND label LIKE '{exc.database}_%' ORDER BY finished_at DESC;",
+            "After the full backup completes successfully, retry the incremental backup",
+        ],
+        inputs={"Database": exc.database, "--config": config, "--group": group},
+        help_links=["starrocks-br backup full --help"],
+    )

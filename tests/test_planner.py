@@ -2,7 +2,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from starrocks_br import planner
+from starrocks_br import exceptions, planner
 
 
 @pytest.fixture
@@ -83,8 +83,10 @@ def test_should_fail_when_no_full_backup_found(mocker, db_with_timezone):
 
     mocker.patch("starrocks_br.planner.find_latest_full_backup", return_value=None)
 
-    with pytest.raises(ValueError, match="No successful full backup found"):
+    with pytest.raises(exceptions.NoFullBackupFoundError) as exc_info:
         planner.find_recent_partitions(db_with_timezone, "test_db", group_name="daily_incremental")
+
+    assert exc_info.value.database == "test_db"
 
 
 def test_should_fail_when_invalid_baseline_backup(db_with_timezone):
@@ -92,7 +94,7 @@ def test_should_fail_when_invalid_baseline_backup(db_with_timezone):
     db_with_timezone.timezone = "UTC"
     db_with_timezone.query.return_value = []
 
-    with pytest.raises(ValueError, match="Baseline backup 'invalid_backup' not found"):
+    with pytest.raises(exceptions.BackupLabelNotFoundError):
         planner.find_recent_partitions(
             db_with_timezone, "test_db", "invalid_backup", group_name="daily_incremental"
         )

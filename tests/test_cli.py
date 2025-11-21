@@ -4,7 +4,7 @@ import tempfile
 import pytest
 from click.testing import CliRunner
 
-from starrocks_br import cli
+from starrocks_br import cli, exceptions
 
 # ============================================================================
 # PHASE 1: Scenario-Based Fixtures
@@ -227,16 +227,16 @@ def test_commands_exit_if_schema_is_auto_created(
 @pytest.mark.parametrize(
     "command,exception,expected_msg",
     [
-        ("backup_incremental", FileNotFoundError("Config not found"), "Config file not found"),
-        ("backup_incremental", ValueError("Invalid config"), "Configuration error"),
+        ("backup_incremental", FileNotFoundError("Config not found"), "CONFIG FILE NOT FOUND"),
+        ("backup_incremental", ValueError("Invalid config"), "Error: Invalid config"),
         ("backup_incremental", RuntimeError("Health check failed"), "Health check failed"),
         ("backup_incremental", Exception("Unexpected"), "Unexpected error"),
-        ("backup_full", FileNotFoundError("Config not found"), "Config file not found"),
-        ("backup_full", ValueError("Invalid config"), "Configuration error"),
+        ("backup_full", FileNotFoundError("Config not found"), "CONFIG FILE NOT FOUND"),
+        ("backup_full", ValueError("Invalid config"), "Error: Invalid config"),
         ("backup_full", RuntimeError("Repo error"), "Repo error"),
         ("backup_full", Exception("Unexpected"), "Unexpected error"),
-        ("init", FileNotFoundError("Config not found"), "Config file not found"),
-        ("init", ValueError("Invalid config"), "Configuration error"),
+        ("init", FileNotFoundError("Config not found"), "CONFIG FILE NOT FOUND"),
+        ("init", exceptions.ConfigValidationError("Invalid config"), "CONFIGURATION ERROR"),
         ("init", Exception("Init failed"), "Failed to initialize schema"),
         ("cli", FileNotFoundError("Config not found"), "CONFIG FILE NOT FOUND"),
         ("cli", ValueError("Invalid config"), "CONFIGURATION ERROR"),

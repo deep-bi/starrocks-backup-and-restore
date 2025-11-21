@@ -1,6 +1,6 @@
 from typing import Literal
 
-from . import logger, utils
+from . import exceptions, logger, utils
 
 
 def reserve_job_slot(db, scope: str, label: str) -> None:
@@ -46,14 +46,7 @@ def _can_heal_stale_job(scope: str, label: str, db) -> bool:
 
 def _raise_concurrency_conflict(scope: str, active_jobs: list[tuple[str, str, str]]) -> None:
     """Raise a concurrency conflict error with helpful message."""
-    active_job_strings = [f"{job[0]}:{job[1]}" for job in active_jobs]
-    active_labels = [job[1] for job in active_jobs]
-
-    raise RuntimeError(
-        f"Concurrency conflict: Another '{scope}' job is already ACTIVE: {', '.join(active_job_strings)}. "
-        f"Wait for it to complete or cancel it via: UPDATE ops.run_status SET state='CANCELLED' "
-        f"WHERE label='{active_labels[0]}' AND state='ACTIVE'"
-    )
+    raise exceptions.ConcurrencyConflictError(scope, active_jobs)
 
 
 def _insert_new_job(db, scope: str, label: str) -> None:

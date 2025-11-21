@@ -1,4 +1,4 @@
-from starrocks_br import concurrency
+from starrocks_br import concurrency, exceptions
 
 
 def test_should_reserve_job_slot_when_no_active_conflict(mocker):
@@ -22,13 +22,14 @@ def test_should_raise_when_active_conflict_exists(mocker):
     try:
         concurrency.reserve_job_slot(db, scope="backup", label="db_20251015_incremental")
         raise AssertionError("expected conflict")
-    except RuntimeError as e:
+    except exceptions.ConcurrencyConflictError as e:
+        assert e.scope == "backup"
+        assert e.active_jobs == [("backup", "db_20251015_incremental", "ACTIVE")]
+        assert e.active_labels == ["db_20251015_incremental"]
         error_msg = str(e)
         assert "Concurrency conflict" in error_msg
-        assert "Another 'backup' job is already ACTIVE: backup:db_20251015_incremental" in error_msg
-        assert "Wait for it to complete or cancel it via" in error_msg
-        assert "UPDATE ops.run_status SET state='CANCELLED'" in error_msg
-        assert "WHERE label='db_20251015_incremental' AND state='ACTIVE'" in error_msg
+        assert "Another 'backup' job is already active" in error_msg
+        assert "backup:db_20251015_incremental" in error_msg
     assert db.execute.call_count == 0
 
 
@@ -93,10 +94,13 @@ def test_should_raise_conflict_when_backup_job_is_still_active(mocker):
     try:
         concurrency.reserve_job_slot(db, scope="backup", label="new_backup_label")
         raise AssertionError("expected conflict")
-    except RuntimeError as e:
+    except exceptions.ConcurrencyConflictError as e:
+        assert e.scope == "backup"
+        assert e.active_jobs == [("backup", "active_backup_label", "ACTIVE")]
+        assert e.active_labels == ["active_backup_label"]
         error_msg = str(e)
         assert "Concurrency conflict" in error_msg
-        assert "Another 'backup' job is already ACTIVE" in error_msg
+        assert "Another 'backup' job is already active" in error_msg
         assert "active_backup_label" in error_msg
 
     assert db.query.call_count == 3
@@ -168,10 +172,13 @@ def test_should_handle_non_backup_scope_conflicts(mocker):
     try:
         concurrency.reserve_job_slot(db, scope="restore", label="new_restore")
         raise AssertionError("expected conflict")
-    except RuntimeError as e:
+    except exceptions.ConcurrencyConflictError as e:
+        assert e.scope == "restore"
+        assert e.active_jobs == [("restore", "active_restore", "ACTIVE")]
+        assert e.active_labels == ["active_restore"]
         error_msg = str(e)
         assert "Concurrency conflict" in error_msg
-        assert "Another 'restore' job is already ACTIVE" in error_msg
+        assert "Another 'restore' job is already active" in error_msg
 
     assert db.query.call_count == 1
     assert db.execute.call_count == 0
@@ -189,10 +196,13 @@ def test_should_handle_exception_during_stale_check(mocker):
     try:
         concurrency.reserve_job_slot(db, scope="backup", label="new_backup_label")
         raise AssertionError("expected conflict")
-    except RuntimeError as e:
+    except exceptions.ConcurrencyConflictError as e:
+        assert e.scope == "backup"
+        assert e.active_jobs == [("backup", "stale_backup_label", "ACTIVE")]
+        assert e.active_labels == ["stale_backup_label"]
         error_msg = str(e)
         assert "Concurrency conflict" in error_msg
-        assert "Another 'backup' job is already ACTIVE" in error_msg
+        assert "Another 'backup' job is already active" in error_msg
 
     assert db.query.call_count == 2
     assert db.execute.call_count == 0

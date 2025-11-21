@@ -125,11 +125,14 @@ def init(config):
                 "   starrocks-br backup incremental --group my_daily_incremental --config config.yaml"
             )
 
-    except FileNotFoundError as e:
-        logger.error(f"Config file not found: {e}")
+    except exceptions.ConfigFileNotFoundError as e:
+        error_handler.handle_config_file_not_found_error(e)
         sys.exit(1)
-    except ValueError as e:
-        logger.error(f"Configuration error: {e}")
+    except exceptions.ConfigValidationError as e:
+        error_handler.handle_config_validation_error(e, config)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        error_handler.handle_config_file_not_found_error(exceptions.ConfigFileNotFoundError(str(e)))
         sys.exit(1)
     except Exception as e:
         logger.error(f"Failed to initialize schema: {e}")
@@ -275,14 +278,26 @@ def backup_incremental(config, baseline_backup, group, name):
                 logger.error(f"{result['error_message']}")
                 sys.exit(1)
 
+    except exceptions.ConcurrencyConflictError as e:
+        error_handler.handle_concurrency_conflict_error(e, config)
+        sys.exit(1)
+    except exceptions.BackupLabelNotFoundError as e:
+        error_handler.handle_backup_label_not_found_error(e, config)
+        sys.exit(1)
+    except exceptions.NoFullBackupFoundError as e:
+        error_handler.handle_no_full_backup_found_error(e, config, group)
+        sys.exit(1)
+    except exceptions.ConfigFileNotFoundError as e:
+        error_handler.handle_config_file_not_found_error(e)
+        sys.exit(1)
+    except exceptions.ConfigValidationError as e:
+        error_handler.handle_config_validation_error(e, config)
+        sys.exit(1)
     except FileNotFoundError as e:
-        logger.error(f"Config file not found: {e}")
+        error_handler.handle_config_file_not_found_error(exceptions.ConfigFileNotFoundError(str(e)))
         sys.exit(1)
     except ValueError as e:
-        logger.error(f"Configuration error: {e}")
-        sys.exit(1)
-    except RuntimeError as e:
-        logger.error(f"{e}")
+        logger.error(f"Error: {e}")
         sys.exit(1)
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
@@ -394,15 +409,23 @@ def backup_full(config, group, name):
                 logger.error(f"{result['error_message']}")
                 sys.exit(1)
 
-    except (FileNotFoundError, ValueError, RuntimeError, Exception) as e:
-        if isinstance(e, FileNotFoundError):
-            logger.error(f"Config file not found: {e}")
-        elif isinstance(e, ValueError):
-            logger.error(f"Configuration error: {e}")
-        elif isinstance(e, RuntimeError):
-            logger.error(f"{e}")
-        else:
-            logger.error(f"Unexpected error: {e}")
+    except exceptions.ConcurrencyConflictError as e:
+        error_handler.handle_concurrency_conflict_error(e, config)
+        sys.exit(1)
+    except exceptions.ConfigFileNotFoundError as e:
+        error_handler.handle_config_file_not_found_error(e)
+        sys.exit(1)
+    except exceptions.ConfigValidationError as e:
+        error_handler.handle_config_validation_error(e, config)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        error_handler.handle_config_file_not_found_error(exceptions.ConfigFileNotFoundError(str(e)))
+        sys.exit(1)
+    except ValueError as e:
+        logger.error(f"Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
         sys.exit(1)
 
 
@@ -559,8 +582,8 @@ def restore_command(config, target_label, group, table, rename_suffix, yes):
             exceptions.ConfigValidationError(str(e)), config
         )
         sys.exit(1)
-    except RuntimeError as e:
-        logger.error(f"{e}")
+    except exceptions.ConcurrencyConflictError as e:
+        error_handler.handle_concurrency_conflict_error(e, config)
         sys.exit(1)
     except Exception as e:
         logger.error(f"Unexpected error: {e}")

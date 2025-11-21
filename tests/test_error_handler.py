@@ -157,6 +157,19 @@ class TestErrorHandler:
         assert "OPERATION CANCELLED" in output
 
     @patch("src.starrocks_br.error_handler.click.echo")
+    def test_handle_concurrency_conflict_error(self, mock_echo):
+        active_jobs = [("backup", "active_backup_label", "ACTIVE")]
+        exc = exceptions.ConcurrencyConflictError("backup", active_jobs)
+        error_handler.handle_concurrency_conflict_error(exc, config="test.yaml")
+
+        calls = [str(call) for call in mock_echo.call_args_list]
+        output = " ".join(calls)
+
+        assert "CONCURRENCY CONFLICT" in output
+        assert "backup" in output
+        assert "active_backup_label" in output
+
+    @patch("src.starrocks_br.error_handler.click.echo")
     def test_display_structured_error_uses_stderr(self, mock_echo):
         error_handler.display_structured_error(
             title="TEST",

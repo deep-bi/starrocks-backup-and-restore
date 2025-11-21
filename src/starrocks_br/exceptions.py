@@ -91,3 +91,19 @@ class NoTablesFoundError(StarRocksBRError):
 class RestoreOperationCancelledError(StarRocksBRError):
     def __init__(self):
         super().__init__("Restore operation cancelled by user")
+
+
+class ConcurrencyConflictError(StarRocksBRError):
+    def __init__(self, scope: str, active_jobs: list[tuple[str, str, str]]):
+        self.scope = scope
+        self.active_jobs = active_jobs
+        self.active_labels = [job[1] for job in active_jobs]
+        super().__init__(
+            f"Concurrency conflict: Another '{scope}' job is already active: {', '.join(f'{job[0]}:{job[1]}' for job in active_jobs)}"
+        )
+
+
+class NoFullBackupFoundError(StarRocksBRError):
+    def __init__(self, database: str):
+        self.database = database
+        super().__init__(f"No successful full backup found for database '{database}'")

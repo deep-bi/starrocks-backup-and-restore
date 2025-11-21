@@ -4,7 +4,7 @@ import tempfile
 import pytest
 import yaml
 
-from starrocks_br import config
+from starrocks_br import config, exceptions
 
 
 def test_should_load_valid_yaml_config():
@@ -53,14 +53,14 @@ def test_should_raise_error_when_yaml_is_invalid():
 
 
 def test_should_raise_error_when_yaml_root_is_not_dict():
-    """Test that ValueError is raised when YAML root element is not a dictionary."""
+    """Test that ConfigValidationError is raised when YAML root element is not a dictionary."""
     with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
         f.write("- item1\n- item2")
         f.flush()
         config_path = f.name
 
     try:
-        with pytest.raises(ValueError, match="Config must be a dictionary"):
+        with pytest.raises(exceptions.ConfigValidationError, match="Config must be a dictionary"):
             config.load_config(config_path)
     finally:
         os.unlink(config_path)
@@ -82,7 +82,7 @@ def test_should_validate_config_with_all_required_fields():
 
 @pytest.mark.parametrize("missing_field", ["host", "port", "user", "database", "repository"])
 def test_should_raise_error_when_required_field_missing(missing_field):
-    """Test that ValueError is raised when any required field is missing."""
+    """Test that ConfigValidationError is raised when any required field is missing."""
     cfg = {
         "host": "127.0.0.1",
         "port": 9030,
@@ -94,7 +94,9 @@ def test_should_raise_error_when_required_field_missing(missing_field):
     # Remove the field being tested
     del cfg[missing_field]
 
-    with pytest.raises(ValueError, match=f"Missing required config field: {missing_field}"):
+    with pytest.raises(
+        exceptions.ConfigValidationError, match=f"Missing required config field: {missing_field}"
+    ):
         config.validate_config(cfg)
 
 
@@ -133,7 +135,7 @@ def test_validate_config_with_invalid_tls_should_fail(tls_config, expected_error
         "tls": tls_config,
     }
 
-    with pytest.raises(ValueError, match=expected_error):
+    with pytest.raises(exceptions.ConfigValidationError, match=expected_error):
         config.validate_config(cfg)
 
 
