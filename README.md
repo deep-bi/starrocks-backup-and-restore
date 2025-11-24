@@ -135,3 +135,7 @@ Read [Core Concepts](docs/core-concepts.md) for detailed explanations.
 ## Contributing
 
 We welcome contributions! See issues for areas that need help or create a new issue to report a bug or request a feature.
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
