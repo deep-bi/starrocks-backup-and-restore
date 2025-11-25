@@ -25,7 +25,7 @@ starrocks-br --help
 
 **No Python installation required.**
 
-Download the executable for your platform from the [latest release](https://github.com/deep-bi/starrocks-br/releases/latest):
+Download the executable for your platform from the [latest release](https://github.com/deep-bi/starrocks-backup-and-restore/releases/latest):
 
 - **Linux**: `starrocks-br-linux-x86_64`
 - **Windows**: `starrocks-br-windows-x86_64.exe`
@@ -83,7 +83,7 @@ export PATH="$HOME/.local/share/micromamba/envs/starrocks-br/bin:$PATH"
 
 ```bash
 # Clone the repository
-git clone https://github.com/deep-bi/starrocks-br
+git clone https://github.com/deep-bi/starrocks-backup-and-restore
 cd starrocks-br
 
 # Install devbox (if not already installed)
@@ -101,7 +101,7 @@ pytest
 
 ```bash
 # Clone the repository
-git clone https://github.com/deep-bi/starrocks-br
+git clone https://github.com/deep-bi/starrocks-backup-and-restore
 cd starrocks-br
 
 # Create and activate virtual environment

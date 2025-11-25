@@ -61,7 +61,7 @@ starrocks-br --help
 
 ### Option 2: Download Standalone Executable
 
-Download the pre-built executable for your platform from the [latest release](https://github.com/deep-bi/starrocks-br/releases/latest):
+Download the pre-built executable for your platform from the [latest release](https://github.com/deep-bi/starrocks-backup-and-restore/releases/latest):
 
 - `starrocks-br-linux-x86_64` → Linux (Intel/AMD)
 - `starrocks-br-windows-x86_64.exe` → Windows (Intel/AMD)
@@ -298,4 +298,4 @@ starrocks-br restore \
 - Check your inventory: `SELECT * FROM ops.table_inventory WHERE inventory_group = 'your_group';`
 - Add missing tables to the inventory
 
-For more help, see the [GitHub Issues](https://github.com/deep-bi/starrocks-br/issues).
+For more help, see the [GitHub Issues](https://github.com/deep-bi/starrocks-backup-and-restore/issues).
