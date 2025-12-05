@@ -15,7 +15,7 @@
 from starrocks_br import schema
 
 
-def populate_table_inventory_for_testing(db) -> None:
+def populate_table_inventory_for_testing(db, ops_database: str = "ops") -> None:
     sample_data = [
         ("daily_incremental", "sales_db", "fact_sales"),
         ("daily_incremental", "orders_db", "fact_orders"),
@@ -27,13 +27,12 @@ def populate_table_inventory_for_testing(db) -> None:
     ]
 
     for data in sample_data:
-        db.execute(
-            """
-            INSERT INTO ops.table_inventory 
+        sql = f"""
+            INSERT INTO {ops_database}.table_inventory
             (inventory_group, database_name, table_name)
-            VALUES ('{}', '{}', '{}');
-        """.format(*data)
-        )
+            VALUES ('{data[0]}', '{data[1]}', '{data[2]}');
+        """
+        db.execute(sql)
 
 
 def test_should_create_ops_database(mocker):
@@ -140,7 +139,7 @@ def test_ensure_ops_schema_when_database_does_not_exist(mocker):
     result = schema.ensure_ops_schema(db)
 
     assert result is True
-    mock_init.assert_called_once_with(db)
+    mock_init.assert_called_once_with(db, ops_database="ops")
     db.query.assert_called_once()
 
 
@@ -153,7 +152,7 @@ def test_ensure_ops_schema_when_tables_are_missing(mocker):
     result = schema.ensure_ops_schema(db)
 
     assert result is True
-    mock_init.assert_called_once_with(db)
+    mock_init.assert_called_once_with(db, ops_database="ops")
     assert db.query.call_count == 2
 
 
@@ -182,7 +181,7 @@ def test_ensure_ops_schema_handles_exceptions_gracefully(mocker):
     result = schema.ensure_ops_schema(db)
 
     assert result is True
-    mock_init.assert_called_once_with(db)
+    mock_init.assert_called_once_with(db, ops_database="ops")
 
 
 def test_ensure_ops_schema_when_tables_result_is_none(mocker):
@@ -194,7 +193,7 @@ def test_ensure_ops_schema_when_tables_result_is_none(mocker):
     result = schema.ensure_ops_schema(db)
 
     assert result is True
-    mock_init.assert_called_once_with(db)
+    mock_init.assert_called_once_with(db, ops_database="ops")
 
 
 def test_should_create_backup_partitions_table_with_correct_structure():
@@ -232,3 +231,81 @@ def test_should_include_backup_partitions_in_initialization(mocker):
 
     assert len(backup_partitions_calls) == 1
     assert "CREATE TABLE IF NOT EXISTS ops.backup_partitions" in backup_partitions_calls[0]
+
+
+def test_should_create_custom_ops_database(mocker):
+    db = mocker.Mock()
+
+    schema.initialize_ops_schema(db, ops_database="custom_ops")
+
+    create_db_calls = [
+        call for call in db.execute.call_args_list if "CREATE DATABASE" in call[0][0]
+    ]
+    assert len(create_db_calls) >= 1
+    assert "CREATE DATABASE IF NOT EXISTS custom_ops" in create_db_calls[0][0][0]
+
+
+def test_should_create_tables_in_custom_ops_database(mocker):
+    db = mocker.Mock()
+
+    schema.initialize_ops_schema(db, ops_database="custom_ops")
+
+    executed_sqls = [call[0][0] for call in db.execute.call_args_list]
+
+    assert any("custom_ops.table_inventory" in sql for sql in executed_sqls)
+    assert any("custom_ops.backup_history" in sql for sql in executed_sqls)
+    assert any("custom_ops.restore_history" in sql for sql in executed_sqls)
+    assert any("custom_ops.run_status" in sql for sql in executed_sqls)
+    assert any("custom_ops.backup_partitions" in sql for sql in executed_sqls)
+
+
+def test_should_use_default_ops_database_when_not_specified(mocker):
+    db = mocker.Mock()
+
+    schema.initialize_ops_schema(db)
+
+    executed_sqls = [call[0][0] for call in db.execute.call_args_list]
+
+    assert any("ops.table_inventory" in sql for sql in executed_sqls)
+    assert any("ops.backup_history" in sql for sql in executed_sqls)
+
+
+def test_ensure_ops_schema_with_custom_database(mocker):
+    db = mocker.Mock()
+    db.query.return_value = []
+    mock_init = mocker.patch("starrocks_br.schema.initialize_ops_schema")
+
+    result = schema.ensure_ops_schema(db, ops_database="custom_ops")
+
+    assert result is True
+    mock_init.assert_called_once_with(db, ops_database="custom_ops")
+
+
+def test_get_table_inventory_schema_with_custom_database():
+    schema_sql = schema.get_table_inventory_schema(ops_database="custom_ops")
+
+    assert "CREATE TABLE IF NOT EXISTS custom_ops.table_inventory" in schema_sql
+
+
+def test_get_backup_history_schema_with_custom_database():
+    schema_sql = schema.get_backup_history_schema(ops_database="custom_ops")
+
+    assert "CREATE TABLE IF NOT EXISTS custom_ops.backup_history" in schema_sql
+
+
+def test_get_restore_history_schema_with_custom_database():
+    schema_sql = schema.get_restore_history_schema(ops_database="custom_ops")
+
+    assert "CREATE TABLE IF NOT EXISTS custom_ops.restore_history" in schema_sql
+
+
+def test_get_run_status_schema_with_custom_database():
+    schema_sql = schema.get_run_status_schema(ops_database="custom_ops")
+
+    assert "CREATE TABLE IF NOT EXISTS custom_ops.run_status" in schema_sql
+
+
+def test_get_backup_partitions_schema_with_custom_database():
+    schema_sql = schema.get_backup_partitions_schema(ops_database="custom_ops")
+
+    assert "CREATE TABLE IF NOT EXISTS custom_ops.backup_partitions" in schema_sql

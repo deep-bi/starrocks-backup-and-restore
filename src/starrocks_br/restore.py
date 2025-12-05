@@ -201,8 +201,21 @@ def execute_restore(
     max_polls: int = MAX_POLLS,
     poll_interval: float = 1.0,
     scope: str = "restore",
+    ops_database: str = "ops",
 ) -> dict:
     """Execute a complete restore workflow: submit command and monitor progress.
+
+    Args:
+        db: Database connection
+        restore_command: Restore SQL command to execute
+        backup_label: Label of the backup being restored
+        restore_type: Type of restore operation
+        repository: Repository name
+        database: Database name
+        max_polls: Maximum polling attempts
+        poll_interval: Seconds between polls
+        scope: Job scope (for concurrency control)
+        ops_database: Name of ops database (default: "ops")
 
     Returns dictionary with keys: success, final_status, error_message
     """
@@ -240,13 +253,18 @@ def execute_restore(
                     "finished_at": finished_at,
                     "error_message": None if success else final_status["state"],
                 },
+                ops_database=ops_database,
             )
         except Exception as e:
             logger.error(f"Failed to log restore history: {str(e)}")
 
         try:
             concurrency.complete_job_slot(
-                db, scope=scope, label=label, final_state=final_status["state"]
+                db,
+                scope=scope,
+                label=label,
+                final_state=final_status["state"],
+                ops_database=ops_database,
             )
         except Exception as e:
             logger.error(f"Failed to complete job slot: {str(e)}")
@@ -264,7 +282,7 @@ def execute_restore(
         return {"success": False, "final_status": None, "error_message": str(e)}
 
 
-def find_restore_pair(db, target_label: str) -> list[str]:
+def find_restore_pair(db, target_label: str, ops_database: str = "ops") -> list[str]:
     """Find the correct sequence of backups needed for restore.
 
     Args:
@@ -280,7 +298,7 @@ def find_restore_pair(db, target_label: str) -> list[str]:
     """
     query = f"""
     SELECT label, backup_type, finished_at
-    FROM ops.backup_history
+    FROM {ops_database}.backup_history
     WHERE label = {utils.quote_value(target_label)}
     AND status = 'FINISHED'
     """
@@ -299,7 +317,7 @@ def find_restore_pair(db, target_label: str) -> list[str]:
 
         full_backup_query = f"""
         SELECT label, backup_type, finished_at
-        FROM ops.backup_history
+        FROM {ops_database}.backup_history
         WHERE backup_type = 'full'
         AND status = 'FINISHED'
         AND label LIKE {utils.quote_value(f"{database_name}_%")}
@@ -326,6 +344,7 @@ def get_tables_from_backup(
     group: str | None = None,
     table: str | None = None,
     database: str | None = None,
+    ops_database: str = "ops",
 ) -> list[str]:
     """Get list of tables to restore from backup manifest.
 
@@ -354,7 +373,7 @@ def get_tables_from_backup(
 
     query = f"""
     SELECT DISTINCT database_name, table_name
-    FROM ops.backup_partitions
+    FROM {ops_database}.backup_partitions
     WHERE label = {utils.quote_value(label)}
     ORDER BY database_name, table_name
     """
@@ -377,7 +396,7 @@ def get_tables_from_backup(
     if group:
         group_query = f"""
         SELECT database_name, table_name
-        FROM ops.table_inventory
+        FROM {ops_database}.table_inventory
         WHERE inventory_group = {utils.quote_value(group)}
         """
 
@@ -411,6 +430,7 @@ def execute_restore_flow(
     tables_to_restore: list[str],
     rename_suffix: str = "_restored",
     skip_confirmation: bool = False,
+    ops_database: str = "ops",
 ) -> dict:
     """Execute the complete restore flow with safety measures.
 
@@ -421,6 +441,7 @@ def execute_restore_flow(
         tables_to_restore: List of tables to restore (format: database.table)
         rename_suffix: Suffix for temporary tables
         skip_confirmation: If True, skip interactive confirmation prompt
+        ops_database: Name of ops database (default: "ops")
 
     Returns:
         Dictionary with success status and details
@@ -462,7 +483,14 @@ def execute_restore_flow(
         )
 
         base_result = execute_restore(
-            db, base_restore_command, base_label, "full", repo_name, database_name, scope="restore"
+            db,
+            base_restore_command,
+            base_label,
+            "full",
+            repo_name,
+            database_name,
+            scope="restore",
+            ops_database=ops_database,
         )
 
         if not base_result["success"]:
@@ -496,6 +524,7 @@ def execute_restore_flow(
                 repo_name,
                 database_name,
                 scope="restore",
+                ops_database=ops_database,
             )
 
             if not incremental_result["success"]:

@@ -1286,7 +1286,7 @@ def test_should_fail_restore_flow_when_incremental_restore_fails(mocker):
     )
 
     def mock_execute_restore(
-        db, command, backup_label, restore_type, repo, database, scope="restore"
+        db, command, backup_label, restore_type, repo, database, scope="restore", ops_database="ops"
     ):
         if "full" in backup_label:
             return {"success": True}

@@ -15,8 +15,8 @@
 from . import logger
 
 
-def log_backup(db, entry: dict[str, str | None]) -> None:
-    """Write a backup history entry to ops.backup_history.
+def log_backup(db, entry: dict[str, str | None], ops_database: str = "ops") -> None:
+    """Write a backup history entry to the backup_history table.
 
     Expected keys in entry:
       - job_id (optional; auto-generated if missing)
@@ -42,7 +42,7 @@ def log_backup(db, entry: dict[str, str | None]) -> None:
         return "'" + str(val).replace("'", "''") + "'"
 
     sql = f"""
-    INSERT INTO ops.backup_history (
+    INSERT INTO {ops_database}.backup_history (
         label, backup_type, status, repository, started_at, finished_at, error_message
     ) VALUES (
         {esc(label)}, {esc(backup_type)}, {esc(status)}, {esc(repository)},
@@ -57,8 +57,8 @@ def log_backup(db, entry: dict[str, str | None]) -> None:
         raise
 
 
-def log_restore(db, entry: dict[str, str | None]) -> None:
-    """Write a restore history entry to ops.restore_history.
+def log_restore(db, entry: dict[str, str | None], ops_database: str = "ops") -> None:
+    """Write a restore history entry to the restore_history table.
 
     Expected keys in entry:
       - job_id
@@ -87,12 +87,12 @@ def log_restore(db, entry: dict[str, str | None]) -> None:
         return "'" + str(val).replace("'", "''") + "'"
 
     sql = f"""
-    INSERT INTO ops.restore_history (
-        job_id, backup_label, restore_type, status, repository, 
+    INSERT INTO {ops_database}.restore_history (
+        job_id, backup_label, restore_type, status, repository,
         started_at, finished_at, error_message, verification_checksum
     ) VALUES (
-        {esc(job_id)}, {esc(backup_label)}, {esc(restore_type)}, {esc(status)}, 
-        {esc(repository)}, {esc(started_at)}, {esc(finished_at)}, 
+        {esc(job_id)}, {esc(backup_label)}, {esc(restore_type)}, {esc(status)},
+        {esc(repository)}, {esc(started_at)}, {esc(finished_at)},
         {esc(error_message)}, {esc(verification_checksum)}
     )
     """

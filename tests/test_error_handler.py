@@ -17,6 +17,43 @@ from unittest.mock import patch
 from src.starrocks_br import error_handler, exceptions
 
 
+class TestGetOpsDatabaseName:
+    @patch("src.starrocks_br.error_handler.config_module.load_config")
+    @patch("src.starrocks_br.error_handler.config_module.get_ops_database")
+    def test_returns_custom_ops_database_from_config(self, mock_get_ops, mock_load):
+        mock_cfg = {"ops_database": "custom_ops"}
+        mock_load.return_value = mock_cfg
+        mock_get_ops.return_value = "custom_ops"
+
+        result = error_handler._get_ops_database_name("/path/to/config.yaml")
+
+        assert result == "custom_ops"
+        mock_load.assert_called_once_with("/path/to/config.yaml")
+        mock_get_ops.assert_called_once_with(mock_cfg)
+
+    def test_returns_default_when_config_path_is_none(self):
+        result = error_handler._get_ops_database_name(None)
+        assert result == "ops"
+
+    @patch("src.starrocks_br.error_handler.config_module.load_config")
+    def test_returns_default_when_load_config_raises_exception(self, mock_load):
+        mock_load.side_effect = Exception("Config error")
+
+        result = error_handler._get_ops_database_name("/path/to/config.yaml")
+
+        assert result == "ops"
+
+    @patch("src.starrocks_br.error_handler.config_module.load_config")
+    @patch("src.starrocks_br.error_handler.config_module.get_ops_database")
+    def test_returns_default_when_get_ops_database_raises_exception(self, mock_get_ops, mock_load):
+        mock_load.return_value = {"some": "config"}
+        mock_get_ops.side_effect = Exception("Get ops error")
+
+        result = error_handler._get_ops_database_name("/path/to/config.yaml")
+
+        assert result == "ops"
+
+
 class TestErrorHandler:
     @patch("src.starrocks_br.error_handler.click.echo")
     def test_display_structured_error_with_all_sections(self, mock_echo):
@@ -194,3 +231,128 @@ class TestErrorHandler:
         for call in mock_echo.call_args_list:
             if call[0]:
                 assert call[1].get("err")
+
+
+class TestErrorHandlerWithCustomOpsDatabase:
+    @patch("src.starrocks_br.error_handler._get_ops_database_name")
+    @patch("src.starrocks_br.error_handler.click.echo")
+    def test_backup_label_not_found_uses_custom_ops_database(self, mock_echo, mock_get_ops):
+        mock_get_ops.return_value = "custom_ops"
+        exc = exceptions.BackupLabelNotFoundError("my_label", "my_repo")
+
+        error_handler.handle_backup_label_not_found_error(exc, config="test.yaml")
+
+        calls = [str(call) for call in mock_echo.call_args_list]
+        output = " ".join(calls)
+        assert "custom_ops.backup_history" in output
+        assert " ops.backup_history" not in output
+        mock_get_ops.assert_called_once_with("test.yaml")
+
+    @patch("src.starrocks_br.error_handler._get_ops_database_name")
+    @patch("src.starrocks_br.error_handler.click.echo")
+    def test_backup_label_not_found_defaults_to_ops_when_no_config(self, mock_echo, mock_get_ops):
+        mock_get_ops.return_value = "ops"
+        exc = exceptions.BackupLabelNotFoundError("my_label", "my_repo")
+
+        error_handler.handle_backup_label_not_found_error(exc, config=None)
+
+        calls = [str(call) for call in mock_echo.call_args_list]
+        output = " ".join(calls)
+        assert "ops.backup_history" in output
+        mock_get_ops.assert_called_once_with(None)
+
+    @patch("src.starrocks_br.error_handler._get_ops_database_name")
+    @patch("src.starrocks_br.error_handler.click.echo")
+    def test_no_successful_full_backup_uses_custom_ops_database(self, mock_echo, mock_get_ops):
+        mock_get_ops.return_value = "my_ops_db"
+        exc = exceptions.NoSuccessfulFullBackupFoundError("inc_label")
+
+        error_handler.handle_no_successful_full_backup_found_error(exc, config="test.yaml")
+
+        calls = [str(call) for call in mock_echo.call_args_list]
+        output = " ".join(calls)
+        assert "my_ops_db.backup_history" in output
+        assert " ops.backup_history" not in output
+
+    @patch("src.starrocks_br.error_handler._get_ops_database_name")
+    @patch("src.starrocks_br.error_handler.click.echo")
+    def test_table_not_found_in_backup_uses_custom_ops_database(self, mock_echo, mock_get_ops):
+        mock_get_ops.return_value = "custom_ops"
+        exc = exceptions.TableNotFoundInBackupError("my_table", "my_label", "my_db")
+
+        error_handler.handle_table_not_found_in_backup_error(exc, config="test.yaml")
+
+        calls = [str(call) for call in mock_echo.call_args_list]
+        output = " ".join(calls)
+        assert "custom_ops.backup_partitions" in output
+        assert " ops.backup_partitions" not in output
+
+    @patch("src.starrocks_br.error_handler._get_ops_database_name")
+    @patch("src.starrocks_br.error_handler.click.echo")
+    def test_snapshot_not_found_uses_custom_ops_database(self, mock_echo, mock_get_ops):
+        mock_get_ops.return_value = "custom_ops"
+        exc = exceptions.SnapshotNotFoundError("my_snapshot", "my_repo")
+
+        error_handler.handle_snapshot_not_found_error(exc, config="test.yaml")
+
+        calls = [str(call) for call in mock_echo.call_args_list]
+        output = " ".join(calls)
+        assert "custom_ops.backup_history" in output
+        assert " ops.backup_history" not in output
+
+    @patch("src.starrocks_br.error_handler._get_ops_database_name")
+    @patch("src.starrocks_br.error_handler.click.echo")
+    def test_no_partitions_found_uses_custom_ops_database(self, mock_echo, mock_get_ops):
+        mock_get_ops.return_value = "custom_ops"
+        exc = exceptions.NoPartitionsFoundError("my_group")
+
+        error_handler.handle_no_partitions_found_error(exc, config="test.yaml", group="my_group")
+
+        calls = [str(call) for call in mock_echo.call_args_list]
+        output = " ".join(calls)
+        assert "custom_ops.table_inventory" in output
+        assert " ops.table_inventory" not in output
+
+    @patch("src.starrocks_br.error_handler._get_ops_database_name")
+    @patch("src.starrocks_br.error_handler.click.echo")
+    def test_no_tables_found_uses_custom_ops_database(self, mock_echo, mock_get_ops):
+        mock_get_ops.return_value = "custom_ops"
+        exc = exceptions.NoTablesFoundError(group="my_group", label="my_label")
+
+        error_handler.handle_no_tables_found_error(exc, config="test.yaml", target_label="my_label")
+
+        calls = [str(call) for call in mock_echo.call_args_list]
+        output = " ".join(calls)
+        assert "custom_ops.backup_partitions" in output
+        assert "custom_ops.table_inventory" in output
+        assert "custom_ops.backup_history" in output
+        assert " ops.backup_partitions" not in output
+        assert " ops.table_inventory" not in output
+        assert " ops.backup_history" not in output
+
+    @patch("src.starrocks_br.error_handler._get_ops_database_name")
+    @patch("src.starrocks_br.error_handler.click.echo")
+    def test_concurrency_conflict_uses_custom_ops_database(self, mock_echo, mock_get_ops):
+        mock_get_ops.return_value = "custom_ops"
+        active_jobs = [("backup", "active_label", "ACTIVE")]
+        exc = exceptions.ConcurrencyConflictError("backup", active_jobs)
+
+        error_handler.handle_concurrency_conflict_error(exc, config="test.yaml")
+
+        calls = [str(call) for call in mock_echo.call_args_list]
+        output = " ".join(calls)
+        assert "custom_ops.run_status" in output
+        assert " ops.run_status" not in output
+
+    @patch("src.starrocks_br.error_handler._get_ops_database_name")
+    @patch("src.starrocks_br.error_handler.click.echo")
+    def test_no_full_backup_found_uses_custom_ops_database(self, mock_echo, mock_get_ops):
+        mock_get_ops.return_value = "custom_ops"
+        exc = exceptions.NoFullBackupFoundError("my_database")
+
+        error_handler.handle_no_full_backup_found_error(exc, config="test.yaml", group="my_group")
+
+        calls = [str(call) for call in mock_echo.call_args_list]
+        output = " ".join(calls)
+        assert "custom_ops.backup_history" in output
+        assert " ops.backup_history" not in output

@@ -14,7 +14,18 @@
 
 import click
 
+from . import config as config_module
 from . import exceptions
+
+
+def _get_ops_database_name(config_path: str | None) -> str:
+    if not config_path:
+        return "ops"
+    try:
+        cfg = config_module.load_config(config_path)
+        return config_module.get_ops_database(cfg)
+    except Exception:
+        return "ops"
 
 
 def display_structured_error(
@@ -74,13 +85,14 @@ def handle_missing_option_error(exc: exceptions.MissingOptionError, config: str 
 def handle_backup_label_not_found_error(
     exc: exceptions.BackupLabelNotFoundError, config: str = None
 ) -> None:
+    ops_db = _get_ops_database_name(config)
     display_structured_error(
         title="RESTORE FAILED",
         reason=f'The backup label "{exc.label}" does not exist in the repository'
         + (f' "{exc.repository}"' if exc.repository else "")
         + ",\nor the backup did not complete successfully.",
         what_to_do=[
-            "List available backups by querying the backup history table:\n     SELECT label, backup_type, status, finished_at FROM ops.backup_history ORDER BY finished_at DESC;",
+            f"List available backups by querying the backup history table:\n     SELECT label, backup_type, status, finished_at FROM {ops_db}.backup_history ORDER BY finished_at DESC;",
             "Check whether the backup completed successfully using StarRocks SQL:"
             + (
                 f"\n     SHOW BACKUP FROM `{exc.repository}`;"
@@ -97,11 +109,12 @@ def handle_backup_label_not_found_error(
 def handle_no_successful_full_backup_found_error(
     exc: exceptions.NoSuccessfulFullBackupFoundError, config: str = None
 ) -> None:
+    ops_db = _get_ops_database_name(config)
     display_structured_error(
         title="RESTORE FAILED",
         reason=f'No successful full backup was found before the incremental backup "{exc.incremental_label}".\nIncremental backups require a base full backup to restore from.',
         what_to_do=[
-            "Verify that a full backup was created before this incremental backup:\n     SELECT label, backup_type, status, finished_at FROM ops.backup_history WHERE backup_type = 'full' AND status = 'FINISHED' ORDER BY finished_at DESC;",
+            f"Verify that a full backup was created before this incremental backup:\n     SELECT label, backup_type, status, finished_at FROM {ops_db}.backup_history WHERE backup_type = 'full' AND status = 'FINISHED' ORDER BY finished_at DESC;",
             "Run a full backup first:\n     starrocks-br backup full --config "
             + (config if config else "<config.yaml>")
             + " --group <group_name>",
@@ -115,13 +128,14 @@ def handle_no_successful_full_backup_found_error(
 def handle_table_not_found_in_backup_error(
     exc: exceptions.TableNotFoundInBackupError, config: str = None
 ) -> None:
+    ops_db = _get_ops_database_name(config)
     display_structured_error(
         title="TABLE NOT FOUND",
         reason=f'Table "{exc.table}" was not found in backup "{exc.label}" for database "{exc.database}".',
         what_to_do=[
             "List all tables in the backup:"
             + (
-                f"\n     SELECT DISTINCT database_name, table_name FROM ops.backup_partitions WHERE label = '{exc.label}';"
+                f"\n     SELECT DISTINCT database_name, table_name FROM {ops_db}.backup_partitions WHERE label = '{exc.label}';"
                 if config
                 else ""
             ),
@@ -201,13 +215,14 @@ def handle_cluster_health_check_failed_error(
 def handle_snapshot_not_found_error(
     exc: exceptions.SnapshotNotFoundError, config: str = None
 ) -> None:
+    ops_db = _get_ops_database_name(config)
     display_structured_error(
         title="SNAPSHOT NOT FOUND",
         reason=f'Snapshot "{exc.snapshot_name}" was not found in repository "{exc.repository}".',
         what_to_do=[
             f"List available snapshots:\n     SHOW SNAPSHOT ON {exc.repository};",
             "Verify the snapshot name spelling is correct",
-            "Ensure the backup completed successfully:\n     SELECT * FROM ops.backup_history WHERE label = '"
+            f"Ensure the backup completed successfully:\n     SELECT * FROM {ops_db}.backup_history WHERE label = '"
             + exc.snapshot_name
             + "';",
         ],
@@ -219,13 +234,14 @@ def handle_snapshot_not_found_error(
 def handle_no_partitions_found_error(
     exc: exceptions.NoPartitionsFoundError, config: str = None, group: str = None
 ) -> None:
+    ops_db = _get_ops_database_name(config)
     display_structured_error(
         title="NO PARTITIONS FOUND",
         reason="No partitions were found to backup"
         + (f" for group '{exc.group_name}'" if exc.group_name else "")
         + ".",
         what_to_do=[
-            "Verify that the inventory group exists in ops.table_inventory:\n     SELECT * FROM ops.table_inventory WHERE inventory_group = "
+            f"Verify that the inventory group exists in {ops_db}.table_inventory:\n     SELECT * FROM {ops_db}.table_inventory WHERE inventory_group = "
             + (f"'{exc.group_name}';" if exc.group_name else "'<your_group>';"),
             "Check that the tables in the group have partitions",
             "Ensure the baseline backup date is correct",
@@ -238,6 +254,7 @@ def handle_no_partitions_found_error(
 def handle_no_tables_found_error(
     exc: exceptions.NoTablesFoundError, config: str = None, target_label: str = None
 ) -> None:
+    ops_db = _get_ops_database_name(config)
     display_structured_error(
         title="NO TABLES FOUND",
         reason="No tables were found"
@@ -250,12 +267,12 @@ def handle_no_tables_found_error(
         )
         + ".",
         what_to_do=[
-            "Verify that tables exist in the backup manifest:\n     SELECT DISTINCT database_name, table_name FROM ops.backup_partitions WHERE label = "
+            f"Verify that tables exist in the backup manifest:\n     SELECT DISTINCT database_name, table_name FROM {ops_db}.backup_partitions WHERE label = "
             + (f"'{exc.label}';" if exc.label else "'<label>';"),
-            "Check that the group name is correct in ops.table_inventory"
+            f"Check that the group name is correct in {ops_db}.table_inventory"
             if exc.group
             else "Verify the backup completed successfully",
-            "List available backups:\n     SELECT label, backup_type, status, finished_at FROM ops.backup_history ORDER BY finished_at DESC;",
+            f"List available backups:\n     SELECT label, backup_type, status, finished_at FROM {ops_db}.backup_history ORDER BY finished_at DESC;",
         ],
         inputs={
             "--target-label": exc.label or target_label,
@@ -282,6 +299,7 @@ def handle_restore_operation_cancelled_error() -> None:
 def handle_concurrency_conflict_error(
     exc: exceptions.ConcurrencyConflictError, config: str = None
 ) -> None:
+    ops_db = _get_ops_database_name(config)
     active_job_strings = [f"{job[0]}:{job[1]}" for job in exc.active_jobs]
     first_label = exc.active_labels[0] if exc.active_labels else "unknown"
 
@@ -290,8 +308,8 @@ def handle_concurrency_conflict_error(
         reason=f"Another '{exc.scope}' job is already running.\nOnly one job of the same type can run at a time to prevent conflicts.",
         what_to_do=[
             f"Wait for the active job to complete: {', '.join(active_job_strings)}",
-            f"Check the job status in ops.run_status:\n     SELECT * FROM ops.run_status WHERE label = '{first_label}' AND state = 'ACTIVE';",
-            f"If the job is stuck, cancel it manually:\n     UPDATE ops.run_status SET state = 'CANCELLED' WHERE label = '{first_label}' AND state = 'ACTIVE';",
+            f"Check the job status in {ops_db}.run_status:\n     SELECT * FROM {ops_db}.run_status WHERE label = '{first_label}' AND state = 'ACTIVE';",
+            f"If the job is stuck, cancel it manually:\n     UPDATE {ops_db}.run_status SET state = 'CANCELLED' WHERE label = '{first_label}' AND state = 'ACTIVE';",
             "Verify the job is not actually running in StarRocks before cancelling it",
         ],
         inputs={
@@ -299,13 +317,14 @@ def handle_concurrency_conflict_error(
             "Scope": exc.scope,
             "Active jobs": ", ".join(active_job_strings),
         },
-        help_links=["Check ops.run_status table for job status"],
+        help_links=[f"Check {ops_db}.run_status table for job status"],
     )
 
 
 def handle_no_full_backup_found_error(
     exc: exceptions.NoFullBackupFoundError, config: str = None, group: str = None
 ) -> None:
+    ops_db = _get_ops_database_name(config)
     display_structured_error(
         title="NO FULL BACKUP FOUND",
         reason=f"No successful full backup was found for database '{exc.database}'.\nIncremental backups require a baseline full backup to compare against.",
@@ -313,7 +332,7 @@ def handle_no_full_backup_found_error(
             "Run a full backup first:\n     starrocks-br backup full --config "
             + (config if config else "<config.yaml>")
             + f" --group {group if group else '<group_name>'}",
-            f"Verify no full backups exist for this database:\n     SELECT label, backup_type, status, finished_at FROM ops.backup_history WHERE backup_type = 'full' AND label LIKE '{exc.database}_%' ORDER BY finished_at DESC;",
+            f"Verify no full backups exist for this database:\n     SELECT label, backup_type, status, finished_at FROM {ops_db}.backup_history WHERE backup_type = 'full' AND label LIKE '{exc.database}_%' ORDER BY finished_at DESC;",
             "After the full backup completes successfully, retry the incremental backup",
         ],
         inputs={"Database": exc.database, "--config": config, "--group": group},

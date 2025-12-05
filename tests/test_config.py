@@ -186,5 +186,49 @@ def test_validate_config_with_valid_tls_should_pass(tls_config):
     if tls_config is not None:
         cfg["tls"] = tls_config
 
-    # Should not raise any exceptions
     config.validate_config(cfg)
+
+
+def test_should_accept_config_with_custom_ops_database():
+    cfg = {
+        "host": "127.0.0.1",
+        "port": 9030,
+        "user": "root",
+        "database": "test_db",
+        "repository": "test_repo",
+        "ops_database": "custom_ops",
+    }
+
+    config.validate_config(cfg)
+
+
+def test_should_accept_config_without_ops_database():
+    cfg = {
+        "host": "127.0.0.1",
+        "port": 9030,
+        "user": "root",
+        "database": "test_db",
+        "repository": "test_repo",
+    }
+
+    config.validate_config(cfg)
+
+
+def test_should_load_ops_database_field_when_present():
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write("""
+        host: "127.0.0.1"
+        port: 9030
+        user: "root"
+        database: "test_db"
+        repository: "test_repo"
+        ops_database: "custom_ops"
+        """)
+        f.flush()
+        config_path = f.name
+
+    try:
+        cfg = config.load_config(config_path)
+        assert cfg["ops_database"] == "custom_ops"
+    finally:
+        os.unlink(config_path)

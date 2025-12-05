@@ -59,6 +59,11 @@ def validate_config(config: dict[str, Any]) -> None:
     _validate_tls_section(config.get("tls"))
 
 
+def get_ops_database(config: dict[str, Any]) -> str:
+    """Get the ops database name from config, defaulting to 'ops'."""
+    return config.get("ops_database", "ops")
+
+
 def _validate_tls_section(tls_config) -> None:
     if tls_config is None:
         return

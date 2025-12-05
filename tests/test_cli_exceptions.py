@@ -226,7 +226,7 @@ class TestBackupIncrementalExceptionHandling:
         assert result.exit_code == 1
         assert "ops schema was auto-created" in result.output
         assert "starrocks-br init" in result.output
-        assert "ops.table_inventory" in result.output
+        assert "table_inventory table" in result.output
 
     def test_handles_lost_state(
         self,
@@ -593,7 +593,7 @@ class TestBackupFullExceptionHandling:
         assert result.exit_code == 1
         assert "ops schema was auto-created" in result.output
         assert "starrocks-br init" in result.output
-        assert "ops.table_inventory" in result.output
+        assert "table_inventory table" in result.output
 
     def test_handles_lost_state(
         self,
@@ -796,7 +796,7 @@ class TestRestoreExceptionHandling:
         assert result.exit_code == 1
         assert "ops schema was auto-created" in result.output
         assert "starrocks-br init" in result.output
-        assert "ops.table_inventory" in result.output
+        assert "table_inventory table" in result.output
 
     @pytest.mark.parametrize(
         "scenario,mock_behavior,expected_msg",

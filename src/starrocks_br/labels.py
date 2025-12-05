@@ -21,12 +21,13 @@ def determine_backup_label(
     backup_type: Literal["incremental", "full"],
     database_name: str,
     custom_name: str | None = None,
+    ops_database: str = "ops",
 ) -> str:
     """Determine a unique backup label for the given parameters.
 
     This is the single entry point for all backup label generation. It handles both
     custom names and auto-generated date-based labels, ensuring uniqueness by checking
-    the ops.backup_history table.
+    the backup_history table in the configured ops database.
 
     Args:
         db: Database connection
@@ -34,6 +35,7 @@ def determine_backup_label(
         database_name: Name of the database being backed up
         custom_name: Optional custom name for the backup. If provided, this becomes
                     the base label. If None, generates a date-based label.
+        ops_database: Name of the database containing operational tables. Defaults to "ops".
 
     Returns:
         Unique label string that doesn't conflict with existing backups
@@ -44,9 +46,9 @@ def determine_backup_label(
         today = datetime.now().strftime("%Y%m%d")
         base_label = f"{database_name}_{today}_{backup_type}"
 
-    query = """
+    query = f"""
     SELECT label
-    FROM ops.backup_history
+    FROM {ops_database}.backup_history
     WHERE label LIKE %s
     ORDER BY label
     """

@@ -18,7 +18,7 @@ import hashlib
 from starrocks_br import exceptions, logger, timezone, utils
 
 
-def find_latest_full_backup(db, database: str) -> dict[str, str] | None:
+def find_latest_full_backup(db, database: str, ops_database: str = "ops") -> dict[str, str] | None:
     """Find the latest successful full backup for a database.
 
     Args:
@@ -31,7 +31,7 @@ def find_latest_full_backup(db, database: str) -> dict[str, str] | None:
     """
     query = f"""
     SELECT label, backup_type, finished_at
-    FROM ops.backup_history
+    FROM {ops_database}.backup_history
     WHERE backup_type = 'full'
     AND status = 'FINISHED'
     AND label LIKE {utils.quote_value(f"{database}_%")}
@@ -56,7 +56,7 @@ def find_latest_full_backup(db, database: str) -> dict[str, str] | None:
     return {"label": row[0], "backup_type": row[1], "finished_at": finished_at}
 
 
-def find_tables_by_group(db, group_name: str) -> list[dict[str, str]]:
+def find_tables_by_group(db, group_name: str, ops_database: str = "ops") -> list[dict[str, str]]:
     """Find tables belonging to a specific inventory group.
 
     Returns list of dictionaries with keys: database, table.
@@ -64,7 +64,7 @@ def find_tables_by_group(db, group_name: str) -> list[dict[str, str]]:
     """
     query = f"""
     SELECT database_name, table_name
-    FROM ops.table_inventory
+    FROM {ops_database}.table_inventory
     WHERE inventory_group = {utils.quote_value(group_name)}
     ORDER BY database_name, table_name
     """
@@ -73,7 +73,12 @@ def find_tables_by_group(db, group_name: str) -> list[dict[str, str]]:
 
 
 def find_recent_partitions(
-    db, database: str, baseline_backup_label: str | None = None, *, group_name: str
+    db,
+    database: str,
+    baseline_backup_label: str | None = None,
+    *,
+    group_name: str,
+    ops_database: str = "ops",
 ) -> list[dict[str, str]]:
     """Find partitions updated since baseline for tables in the given inventory group.
 
@@ -91,7 +96,7 @@ def find_recent_partitions(
     if baseline_backup_label:
         baseline_query = f"""
         SELECT finished_at
-        FROM ops.backup_history
+        FROM {ops_database}.backup_history
         WHERE label = {utils.quote_value(baseline_backup_label)}
         AND status = 'FINISHED'
         """
@@ -100,7 +105,7 @@ def find_recent_partitions(
             raise exceptions.BackupLabelNotFoundError(baseline_backup_label)
         baseline_time_raw = baseline_rows[0][0]
     else:
-        latest_backup = find_latest_full_backup(db, database)
+        latest_backup = find_latest_full_backup(db, database, ops_database)
         if not latest_backup:
             raise exceptions.NoFullBackupFoundError(database)
         baseline_time_raw = latest_backup["finished_at"]
@@ -114,7 +119,7 @@ def find_recent_partitions(
 
     baseline_dt = timezone.parse_datetime_with_tz(baseline_time_str, cluster_tz)
 
-    group_tables = find_tables_by_group(db, group_name)
+    group_tables = find_tables_by_group(db, group_name, ops_database)
 
     if not group_tables:
         return []
@@ -218,7 +223,7 @@ def build_incremental_backup_command(
 
 
 def build_full_backup_command(
-    db, group_name: str, repository: str, label: str, database: str
+    db, group_name: str, repository: str, label: str, database: str, ops_database: str = "ops"
 ) -> str:
     """Build BACKUP command for an inventory group.
 
@@ -226,7 +231,7 @@ def build_full_backup_command(
     simple BACKUP DATABASE command. Otherwise, generate ON (TABLE ...) list for
     the specific tables within the database.
     """
-    tables = find_tables_by_group(db, group_name)
+    tables = find_tables_by_group(db, group_name, ops_database)
 
     db_entries = [t for t in tables if t["database"] == database]
     if not db_entries:
@@ -245,8 +250,10 @@ def build_full_backup_command(
     ON ({on_clause})"""
 
 
-def record_backup_partitions(db, label: str, partitions: list[dict[str, str]]) -> None:
-    """Record partition metadata for a backup in ops.backup_partitions table.
+def record_backup_partitions(
+    db, label: str, partitions: list[dict[str, str]], ops_database: str = "ops"
+) -> None:
+    """Record partition metadata for a backup in the backup_partitions table.
 
     Args:
         db: Database connection
@@ -263,7 +270,7 @@ def record_backup_partitions(db, label: str, partitions: list[dict[str, str]]) -
         key_hash = hashlib.md5(composite_key.encode("utf-8")).hexdigest()
 
         db.execute(f"""
-            INSERT INTO ops.backup_partitions
+            INSERT INTO {ops_database}.backup_partitions
             (key_hash, label, database_name, table_name, partition_name)
             VALUES ({utils.quote_value(key_hash)}, {utils.quote_value(label)}, {utils.quote_value(partition["database"])}, {utils.quote_value(partition["table"])}, {utils.quote_value(partition["partition_name"])})
         """)
