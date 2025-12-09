@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2025-12-09
+
+### Fixed
+- **Critical Bug**: Fixed backup tracking failure caused by backtick mismatch
+  - Backup commands use backticks for SQL identifier quoting (e.g., `` `label` ``)
+  - StarRocks SHOW BACKUP returns labels without backticks (e.g., `label`)
+  - Label extraction now strips backticks to match SHOW BACKUP output
+  - Affects both full and incremental backup operations
+  - Prevents false "Backup tracking lost" errors when no concurrency issue exists
+
 ## [0.5.1] - 2025-11-21
 
 ### Added
