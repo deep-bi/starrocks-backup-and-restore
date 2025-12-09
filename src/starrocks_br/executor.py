@@ -311,12 +311,11 @@ def _extract_label_from_command(backup_command: str) -> str:
             parts = line.split()
             for i, part in enumerate(parts):
                 if part == "SNAPSHOT" and i + 1 < len(parts):
-                    return parts[i + 1]
+                    return parts[i + 1].strip("`")
         elif line.startswith("BACKUP SNAPSHOT"):
-            # Legacy syntax
             parts = line.split()
             if len(parts) >= 3:
-                return parts[2]
+                return parts[2].strip("`")
 
     return "unknown_backup"
 
@@ -325,6 +324,9 @@ def _extract_database_from_command(backup_command: str) -> str:
     """Extract the database name from a backup command.
 
     Parses: BACKUP DATABASE db_name SNAPSHOT label ...
+
+    Strips backticks from identifiers since they are only used for
+    SQL quoting purposes.
     """
     lines = backup_command.strip().split("\n")
 
@@ -333,6 +335,6 @@ def _extract_database_from_command(backup_command: str) -> str:
         if line.startswith("BACKUP DATABASE"):
             parts = line.split()
             if len(parts) >= 3:
-                return parts[2]
+                return parts[2].strip("`")
 
     return "unknown_database"
