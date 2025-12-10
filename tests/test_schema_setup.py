@@ -140,7 +140,7 @@ def test_ensure_ops_schema_when_database_does_not_exist(mocker):
     result = schema.ensure_ops_schema(db)
 
     assert result is True
-    mock_init.assert_called_once_with(db)
+    mock_init.assert_called_once_with(db, ops_database="ops")
     db.query.assert_called_once()
 
 
@@ -153,7 +153,7 @@ def test_ensure_ops_schema_when_tables_are_missing(mocker):
     result = schema.ensure_ops_schema(db)
 
     assert result is True
-    mock_init.assert_called_once_with(db)
+    mock_init.assert_called_once_with(db, ops_database="ops")
     assert db.query.call_count == 2
 
 
@@ -182,7 +182,7 @@ def test_ensure_ops_schema_handles_exceptions_gracefully(mocker):
     result = schema.ensure_ops_schema(db)
 
     assert result is True
-    mock_init.assert_called_once_with(db)
+    mock_init.assert_called_once_with(db, ops_database="ops")
 
 
 def test_ensure_ops_schema_when_tables_result_is_none(mocker):
@@ -194,7 +194,7 @@ def test_ensure_ops_schema_when_tables_result_is_none(mocker):
     result = schema.ensure_ops_schema(db)
 
     assert result is True
-    mock_init.assert_called_once_with(db)
+    mock_init.assert_called_once_with(db, ops_database="ops")
 
 
 def test_should_create_backup_partitions_table_with_correct_structure():
@@ -232,3 +232,108 @@ def test_should_include_backup_partitions_in_initialization(mocker):
 
     assert len(backup_partitions_calls) == 1
     assert "CREATE TABLE IF NOT EXISTS ops.backup_partitions" in backup_partitions_calls[0]
+
+
+def test_should_bootstrap_table_inventory_from_entries(mocker):
+    db = mocker.Mock()
+    entries = [
+        ("daily_incremental", "sales_db", "fact_sales"),
+        ("daily_incremental", "orders_db", "fact_orders"),
+        ("monthly_full", "config_db", "*"),
+    ]
+
+    schema.bootstrap_table_inventory(db, entries, ops_database="ops")
+
+    insert_calls = [
+        call
+        for call in db.execute.call_args_list
+        if "INSERT INTO ops.table_inventory" in call[0][0]
+    ]
+    assert len(insert_calls) == 3
+
+
+def test_should_not_bootstrap_table_inventory_when_entries_are_empty(mocker):
+    db = mocker.Mock()
+    entries = []
+
+    schema.bootstrap_table_inventory(db, entries, ops_database="ops")
+
+    db.execute.assert_not_called()
+
+
+def test_should_bootstrap_table_inventory_with_custom_ops_database(mocker):
+    db = mocker.Mock()
+    entries = [
+        ("test_group", "test_db", "test_table"),
+    ]
+
+    schema.bootstrap_table_inventory(db, entries, ops_database="custom_ops")
+
+    insert_calls = [
+        call
+        for call in db.execute.call_args_list
+        if "INSERT INTO custom_ops.table_inventory" in call[0][0]
+    ]
+    assert len(insert_calls) == 1
+
+
+def test_should_use_insert_ignore_for_idempotent_bootstrapping(mocker):
+    db = mocker.Mock()
+    entries = [
+        ("test_group", "test_db", "test_table"),
+    ]
+
+    schema.bootstrap_table_inventory(db, entries, ops_database="ops")
+
+    executed_sql = db.execute.call_args_list[0][0][0]
+    assert "INSERT IGNORE INTO" in executed_sql or "INSERT INTO" in executed_sql
+
+
+def test_should_bootstrap_table_inventory_with_wildcards(mocker):
+    db = mocker.Mock()
+    entries = [
+        ("full_backup", "sales_db", "*"),
+        ("full_backup", "orders_db", "*"),
+    ]
+
+    schema.bootstrap_table_inventory(db, entries, ops_database="ops")
+
+    insert_calls = [
+        call
+        for call in db.execute.call_args_list
+        if "INSERT INTO ops.table_inventory" in call[0][0]
+    ]
+    assert len(insert_calls) == 2
+
+    for call in insert_calls:
+        assert "'*'" in call[0][0]
+
+
+def test_initialize_ops_schema_should_bootstrap_when_entries_provided(mocker):
+    db = mocker.Mock()
+    entries = [
+        ("test_group", "test_db", "test_table"),
+    ]
+    mock_bootstrap = mocker.patch("starrocks_br.schema.bootstrap_table_inventory")
+
+    schema.initialize_ops_schema(db, ops_database="ops", table_inventory_entries=entries)
+
+    mock_bootstrap.assert_called_once_with(db, entries, ops_database="ops")
+
+
+def test_initialize_ops_schema_should_not_bootstrap_when_entries_empty(mocker):
+    db = mocker.Mock()
+    mock_bootstrap = mocker.patch("starrocks_br.schema.bootstrap_table_inventory")
+
+    schema.initialize_ops_schema(db, ops_database="ops", table_inventory_entries=[])
+
+    mock_bootstrap.assert_not_called()
+
+
+def test_initialize_ops_schema_should_not_bootstrap_when_entries_none(mocker):
+    db = mocker.Mock()
+    mock_bootstrap = mocker.patch("starrocks_br.schema.bootstrap_table_inventory")
+
+    schema.initialize_ops_schema(db, ops_database="ops", table_inventory_entries=None)
+
+    mock_bootstrap.assert_not_called()

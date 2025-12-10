@@ -57,6 +57,34 @@ def validate_config(config: dict[str, Any]) -> None:
             raise exceptions.ConfigValidationError(f"Missing required config field: {field}")
 
     _validate_tls_section(config.get("tls"))
+    _validate_table_inventory_section(config.get("table_inventory"))
+
+
+def get_ops_database(config: dict[str, Any]) -> str:
+    """Get the ops database name from config, defaulting to 'ops'."""
+    return config.get("ops_database", "ops")
+
+
+def get_table_inventory_entries(config: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """Extract table inventory entries from config.
+
+    Args:
+        config: Configuration dictionary
+
+    Returns:
+        List of tuples (group, database, table)
+    """
+    table_inventory = config.get("table_inventory")
+    if not table_inventory:
+        return []
+
+    entries = []
+    for group_entry in table_inventory:
+        group = group_entry["group"]
+        for table_entry in group_entry["tables"]:
+            entries.append((group, table_entry["database"], table_entry["table"]))
+
+    return entries
 
 
 def _validate_tls_section(tls_config) -> None:
@@ -88,3 +116,50 @@ def _validate_tls_section(tls_config) -> None:
             raise exceptions.ConfigValidationError(
                 "TLS configuration field 'tls_versions' must be a list of strings if provided"
             )
+
+
+def _validate_table_inventory_section(table_inventory) -> None:
+    if table_inventory is None:
+        return
+
+    if not isinstance(table_inventory, list):
+        raise exceptions.ConfigValidationError("'table_inventory' must be a list")
+
+    for entry in table_inventory:
+        if not isinstance(entry, dict):
+            raise exceptions.ConfigValidationError(
+                "Each entry in 'table_inventory' must be a dictionary"
+            )
+
+        if "group" not in entry:
+            raise exceptions.ConfigValidationError(
+                "Each entry in 'table_inventory' must have a 'group' field"
+            )
+
+        if "tables" not in entry:
+            raise exceptions.ConfigValidationError(
+                "Each entry in 'table_inventory' must have a 'tables' field"
+            )
+
+        if not isinstance(entry["group"], str):
+            raise exceptions.ConfigValidationError("'group' field must be a string")
+
+        tables = entry["tables"]
+        if not isinstance(tables, list):
+            raise exceptions.ConfigValidationError("'tables' field must be a list")
+
+        for table_entry in tables:
+            if not isinstance(table_entry, dict):
+                raise exceptions.ConfigValidationError("Each table entry must be a dictionary")
+
+            if "database" not in table_entry or "table" not in table_entry:
+                raise exceptions.ConfigValidationError(
+                    "Each table entry must have 'database' and 'table' fields"
+                )
+
+            if not isinstance(table_entry["database"], str) or not isinstance(
+                table_entry["table"], str
+            ):
+                raise exceptions.ConfigValidationError(
+                    "'database' and 'table' fields must be strings"
+                )
