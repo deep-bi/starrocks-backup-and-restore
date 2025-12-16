@@ -112,6 +112,9 @@ def init(config):
         cfg = config_module.load_config(config)
         config_module.validate_config(cfg)
 
+        ops_database = config_module.get_ops_database(cfg)
+        table_inventory_entries = config_module.get_table_inventory_entries(cfg)
+
         database = db.StarRocksDB(
             host=cfg["host"],
             port=cfg["port"],
@@ -125,21 +128,35 @@ def init(config):
 
         with database:
             logger.info("Initializing ops schema...")
-            schema.initialize_ops_schema(database, ops_database=ops_database)
-            logger.info("")
-            logger.info("Next steps:")
-            logger.info("1. Insert your table inventory records:")
-            logger.info(f"   INSERT INTO {ops_database}.table_inventory")
-            logger.info("   (inventory_group, database_name, table_name)")
-            logger.info("   VALUES ('my_daily_incremental', 'your_db', 'your_fact_table');")
-            logger.info("   VALUES ('my_full_database_backup', 'your_db', '*');")
-            logger.info("   VALUES ('my_full_dimension_tables', 'your_db', 'dim_customers');")
-            logger.info("   VALUES ('my_full_dimension_tables', 'your_db', 'dim_products');")
-            logger.info("")
-            logger.info("2. Run your first backup:")
-            logger.info(
-                "   starrocks-br backup incremental --group my_daily_incremental --config config.yaml"
+            schema.initialize_ops_schema(
+                database, ops_database=ops_database, table_inventory_entries=table_inventory_entries
             )
+            logger.info("")
+
+            if table_inventory_entries:
+                logger.success(
+                    f"Table inventory bootstrapped from config with {len(table_inventory_entries)} entries"
+                )
+                logger.info("")
+                logger.info("Next steps:")
+                logger.info("1. Run your first backup:")
+                logger.info(
+                    f"   starrocks-br backup incremental --group <your_group_name> --config {config}"
+                )
+            else:
+                logger.info("Next steps:")
+                logger.info("1. Insert your table inventory records:")
+                logger.info(f"   INSERT INTO {ops_database}.table_inventory")
+                logger.info("   (inventory_group, database_name, table_name)")
+                logger.info("   VALUES ('my_daily_incremental', 'your_db', 'your_fact_table');")
+                logger.info("   VALUES ('my_full_database_backup', 'your_db', '*');")
+                logger.info("   VALUES ('my_full_dimension_tables', 'your_db', 'dim_customers');")
+                logger.info("   VALUES ('my_full_dimension_tables', 'your_db', 'dim_products');")
+                logger.info("")
+                logger.info("2. Run your first backup:")
+                logger.info(
+                    "   starrocks-br backup incremental --group my_daily_incremental --config config.yaml"
+                )
 
     except exceptions.ConfigFileNotFoundError as e:
         error_handler.handle_config_file_not_found_error(e)

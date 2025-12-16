@@ -15,11 +15,17 @@
 from . import logger
 
 
-def initialize_ops_schema(db, ops_database: str = "ops") -> None:
+def initialize_ops_schema(
+    db, ops_database: str = "ops", table_inventory_entries: list[tuple[str, str, str]] | None = None
+) -> None:
     """Initialize the ops database and all required control tables.
 
-    Creates empty ops tables. Does NOT populate with sample data.
-    Users must manually insert their table inventory records.
+    Creates empty ops tables. Optionally populates table_inventory from entries.
+
+    Args:
+        db: Database connection
+        ops_database: Name of the ops database (defaults to "ops")
+        table_inventory_entries: Optional list of (group, database, table) tuples to bootstrap
     """
 
     logger.info(f"Creating {ops_database} database...")
@@ -45,6 +51,14 @@ def initialize_ops_schema(db, ops_database: str = "ops") -> None:
     logger.info(f"Creating {ops_database}.backup_partitions...")
     db.execute(get_backup_partitions_schema(ops_database=ops_database))
     logger.success(f"{ops_database}.backup_partitions created")
+
+    if table_inventory_entries:
+        logger.info(f"Bootstrapping {ops_database}.table_inventory from configuration...")
+        bootstrap_table_inventory(db, table_inventory_entries, ops_database=ops_database)
+        logger.success(
+            f"{ops_database}.table_inventory bootstrapped with {len(table_inventory_entries)} entries"
+        )
+
     logger.info("")
     logger.success("Schema initialized successfully!")
 
@@ -74,6 +88,28 @@ def ensure_ops_schema(db, ops_database: str = "ops") -> bool:
     except Exception:
         initialize_ops_schema(db, ops_database=ops_database)
         return True
+
+
+def bootstrap_table_inventory(
+    db, entries: list[tuple[str, str, str]], ops_database: str = "ops"
+) -> None:
+    """Bootstrap table_inventory table with entries from configuration.
+
+    Args:
+        db: Database connection
+        entries: List of (group, database, table) tuples
+        ops_database: Name of the ops database (defaults to "ops")
+    """
+    if not entries:
+        return
+
+    for group, database, table in entries:
+        sql = f"""
+            INSERT INTO {ops_database}.table_inventory
+            (inventory_group, database_name, table_name)
+            VALUES ('{group}', '{database}', '{table}')
+        """
+        db.execute(sql)
 
 
 def get_table_inventory_schema(ops_database: str = "ops") -> str:
