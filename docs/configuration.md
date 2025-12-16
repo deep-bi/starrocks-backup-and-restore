@@ -62,6 +62,8 @@ table_inventory:
 
 When you run `starrocks-br init`, table inventory is automatically populated from your config. Manual SQL INSERT statements still work if you prefer that approach.
 
+**Note:** If you modify the `table_inventory` section in your config file after the initial setup, you must rerun `starrocks-br init --config <config_file>` to update the database with your changes. The table inventory is persisted in the `ops.table_inventory` table and is not automatically updated when you change the config file.
+
 ## Password Management
 
 Never store passwords in config files. Use an environment variable:

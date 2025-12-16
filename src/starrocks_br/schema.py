@@ -103,6 +103,16 @@ def bootstrap_table_inventory(
     if not entries:
         return
 
+    unique_databases = {database for _, database, _ in entries}
+
+    for database_name in unique_databases:
+        result = db.query(f"SHOW DATABASES LIKE '{database_name}'")
+        if not result:
+            logger.warning(
+                f"Database '{database_name}' does not exist. "
+                f"Table inventory entries will be created, but backups will fail until the database is created."
+            )
+
     for group, database, table in entries:
         sql = f"""
             INSERT INTO {ops_database}.table_inventory

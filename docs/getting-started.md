@@ -140,6 +140,12 @@ If you included `table_inventory` in your `config.yaml`, the init command automa
 SELECT * FROM ops.table_inventory;
 ```
 
+**Important:** If you add or modify tables in the `table_inventory` section of your config file later, rerun the init command to update the database:
+
+```bash
+starrocks-br init --config config.yaml
+```
+
 ### Option 2: Manual SQL Insert
 
 Alternatively, connect to your StarRocks cluster and populate the inventory manually:

@@ -414,3 +414,85 @@ def test_get_backup_partitions_schema_with_custom_database():
     schema_sql = schema.get_backup_partitions_schema(ops_database="custom_ops")
 
     assert "CREATE TABLE IF NOT EXISTS custom_ops.backup_partitions" in schema_sql
+
+
+def test_bootstrap_should_warn_when_database_does_not_exist(mocker):
+    db = mocker.Mock()
+    db.query.return_value = []
+    mock_logger = mocker.patch("starrocks_br.schema.logger")
+
+    entries = [
+        ("test_group", "nonexistent_db", "test_table"),
+        ("test_group", "another_missing_db", "another_table"),
+    ]
+
+    schema.bootstrap_table_inventory(db, entries, ops_database="ops")
+
+    assert mock_logger.warning.call_count == 2
+    warning_messages = [call[0][0] for call in mock_logger.warning.call_args_list]
+    assert any("nonexistent_db" in msg for msg in warning_messages)
+    assert any("another_missing_db" in msg for msg in warning_messages)
+
+    insert_calls = [
+        call
+        for call in db.execute.call_args_list
+        if "INSERT INTO ops.table_inventory" in call[0][0]
+    ]
+    assert len(insert_calls) == 2
+
+
+def test_bootstrap_should_not_warn_when_database_exists(mocker):
+    db = mocker.Mock()
+    db.query.return_value = [("existing_db",)]
+    mock_logger = mocker.patch("starrocks_br.schema.logger")
+
+    entries = [
+        ("test_group", "existing_db", "test_table"),
+    ]
+
+    schema.bootstrap_table_inventory(db, entries, ops_database="ops")
+
+    mock_logger.warning.assert_not_called()
+
+    insert_calls = [
+        call
+        for call in db.execute.call_args_list
+        if "INSERT INTO ops.table_inventory" in call[0][0]
+    ]
+    assert len(insert_calls) == 1
+
+
+def test_bootstrap_should_deduplicate_database_checks(mocker):
+    db = mocker.Mock()
+    db.query.return_value = [("test_db",)]
+
+    entries = [
+        ("test_group", "test_db", "table1"),
+        ("test_group", "test_db", "table2"),
+        ("test_group", "test_db", "table3"),
+    ]
+
+    schema.bootstrap_table_inventory(db, entries, ops_database="ops")
+
+    show_db_calls = [call for call in db.query.call_args_list if "SHOW DATABASES" in str(call)]
+    assert len(show_db_calls) == 1
+
+
+def test_bootstrap_should_check_multiple_unique_databases(mocker):
+    db = mocker.Mock()
+    db.query.side_effect = [
+        [("db1",)],
+        [("db2",)],
+        [],
+    ]
+
+    entries = [
+        ("test_group", "db1", "table1"),
+        ("test_group", "db2", "table2"),
+        ("test_group", "db3", "table3"),
+    ]
+
+    schema.bootstrap_table_inventory(db, entries, ops_database="ops")
+
+    show_db_calls = [call for call in db.query.call_args_list if "SHOW DATABASES" in str(call)]
+    assert len(show_db_calls) == 3

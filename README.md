@@ -104,6 +104,8 @@ starrocks-br init --config config.yaml
 
 This creates the `ops` database and automatically populates table inventory from your config (if defined).
 
+**Note:** If you modify the `table_inventory` in your config file, rerun `starrocks-br init --config config.yaml` to update the database.
+
 **Alternative: Define inventory groups manually** (in StarRocks):
 ```sql
 INSERT INTO ops.table_inventory (inventory_group, database_name, table_name)
