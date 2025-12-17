@@ -27,6 +27,7 @@ from . import (
     labels,
     logger,
     planner,
+    prune,
     repository,
     restore,
     schema,
@@ -659,6 +660,210 @@ def restore_command(config, target_label, group, table, rename_suffix, yes):
         sys.exit(1)
     except exceptions.ConcurrencyConflictError as e:
         error_handler.handle_concurrency_conflict_error(e, config)
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        sys.exit(1)
+
+
+@cli.command("prune")
+@click.option("--config", required=True, help="Path to config YAML file")
+@click.option(
+    "--group",
+    help="Optional inventory group to filter backups. Without this, prunes ALL backups.",
+)
+@click.option(
+    "--keep-last",
+    type=int,
+    help="Keep only the last N successful backups (deletes older ones)",
+)
+@click.option(
+    "--older-than",
+    help="Delete snapshots older than this timestamp (format: YYYY-MM-DD HH:MM:SS)",
+)
+@click.option("--snapshot", help="Delete a specific snapshot by name")
+@click.option("--snapshots", help="Delete multiple specific snapshots (comma-separated)")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be deleted without actually deleting",
+)
+@click.option("--yes", is_flag=True, help="Skip confirmation prompt and proceed automatically")
+def prune_command(config, group, keep_last, older_than, snapshot, snapshots, dry_run, yes):
+    """Prune (delete) old backup snapshots from the repository.
+
+    This command helps manage repository storage by removing old or unwanted snapshots.
+    Supports multiple pruning strategies:
+    - Keep only the last N backups
+    - Delete backups older than a specific date
+    - Delete specific snapshots by name
+
+    Flow: load config → check health → ensure repository → query backups →
+    filter snapshots to delete → confirm → execute deletion → cleanup history
+    """
+    try:
+        pruning_options = [keep_last, older_than, snapshot, snapshots]
+        specified_options = [opt for opt in pruning_options if opt is not None]
+
+        if not specified_options:
+            logger.error(
+                "Must specify one pruning option: --keep-last, --older-than, --snapshot, or --snapshots"
+            )
+            sys.exit(1)
+
+        if len(specified_options) > 1:
+            logger.error(
+                "Pruning options are mutually exclusive. "
+                "Please specify only one of: --keep-last, --older-than, --snapshot, or --snapshots"
+            )
+            sys.exit(1)
+
+        if keep_last is not None and keep_last <= 0:
+            logger.error("--keep-last must be a positive number (greater than 0)")
+            sys.exit(1)
+
+        cfg = config_module.load_config(config)
+        config_module.validate_config(cfg)
+
+        database = db.StarRocksDB(
+            host=cfg["host"],
+            port=cfg["port"],
+            user=cfg["user"],
+            password=os.getenv("STARROCKS_PASSWORD"),
+            database=cfg["database"],
+            tls_config=cfg.get("tls"),
+        )
+
+        ops_database = config_module.get_ops_database(cfg)
+
+        with database:
+            was_created = schema.ensure_ops_schema(database, ops_database=ops_database)
+            if was_created:
+                logger.warning(
+                    "ops schema was auto-created. Please run 'starrocks-br init' after populating config."
+                )
+                sys.exit(1)
+
+            healthy, message = health.check_cluster_health(database)
+            if not healthy:
+                logger.error(f"Cluster health check failed: {message}")
+                sys.exit(1)
+
+            logger.success(f"Cluster health: {message}")
+
+            repository.ensure_repository(database, cfg["repository"])
+            logger.success(f"Repository '{cfg['repository']}' verified")
+
+            if keep_last:
+                strategy = "keep_last"
+                strategy_kwargs = {"count": keep_last}
+                logger.info(f"Pruning strategy: Keep last {keep_last} backup(s)")
+            elif older_than:
+                strategy = "older_than"
+                strategy_kwargs = {"timestamp": older_than}
+                logger.info(f"Pruning strategy: Delete backups older than {older_than}")
+            elif snapshot:
+                strategy = "specific"
+                strategy_kwargs = {"snapshot": snapshot}
+                logger.info(f"Pruning strategy: Delete specific snapshot '{snapshot}'")
+            elif snapshots:
+                strategy = "multiple"
+                snapshot_list = [s.strip() for s in snapshots.split(",")]
+                strategy_kwargs = {"snapshots": snapshot_list}
+                logger.info(f"Pruning strategy: Delete {len(snapshot_list)} specific snapshot(s)")
+
+            if group:
+                logger.info(f"Filtering by inventory group: {group}")
+
+            all_backups = prune.get_successful_backups(
+                database, cfg["repository"], group=group, ops_database=ops_database
+            )
+
+            if not all_backups:
+                msg = f"No successful backups found in repository '{cfg['repository']}'"
+                if group:
+                    msg += f" for inventory group '{group}'"
+                logger.info(msg)
+                sys.exit(0)
+
+            logger.info(f"Found {len(all_backups)} total backup(s) in repository")
+
+            if strategy in ["specific", "multiple"]:
+                snapshots_to_verify = (
+                    [snapshot] if strategy == "specific" else strategy_kwargs["snapshots"]
+                )
+                for snap in snapshots_to_verify:
+                    prune.verify_snapshot_exists(database, cfg["repository"], snap)
+
+            snapshots_to_delete = prune.filter_snapshots_to_delete(
+                all_backups, strategy, **strategy_kwargs
+            )
+
+            if not snapshots_to_delete:
+                logger.success("No snapshots to delete based on the specified criteria")
+                sys.exit(0)
+
+            logger.info("")
+            logger.info(f"Snapshots to delete: {len(snapshots_to_delete)}")
+            for snap in snapshots_to_delete:
+                logger.info(f"  - {snap['label']} (finished: {snap['finished_at']})")
+
+            if keep_last:
+                kept_count = len(all_backups) - len(snapshots_to_delete)
+                logger.info(f"Snapshots to keep: {kept_count} (most recent)")
+
+            if dry_run:
+                logger.info("")
+                logger.warning("DRY RUN MODE - No snapshots will be deleted")
+                logger.info(f"Would delete {len(snapshots_to_delete)} snapshot(s)")
+                sys.exit(0)
+
+            if not yes:
+                logger.info("")
+                logger.warning(
+                    f"This will permanently delete {len(snapshots_to_delete)} snapshot(s) from the repository"
+                )
+                confirm = click.confirm("Do you want to proceed?", default=False)
+                if not confirm:
+                    logger.info("Prune operation cancelled by user")
+                    sys.exit(1)
+
+            logger.info("")
+            logger.info("Starting snapshot deletion...")
+            deleted_count = 0
+            failed_count = 0
+
+            for snap in snapshots_to_delete:
+                try:
+                    prune.execute_drop_snapshot(database, cfg["repository"], snap["label"])
+                    prune.cleanup_backup_history(database, snap["label"], ops_database=ops_database)
+                    deleted_count += 1
+                except Exception as e:
+                    logger.error(f"Failed to delete snapshot '{snap['label']}': {e}")
+                    failed_count += 1
+
+            logger.info("")
+            logger.success(f"Deleted {deleted_count} snapshot(s)")
+
+            if failed_count > 0:
+                logger.warning(f"Failed to delete {failed_count} snapshot(s)")
+
+            if keep_last:
+                logger.success(f"Kept {len(all_backups) - len(snapshots_to_delete)} most recent backup(s)")
+
+            sys.exit(0 if failed_count == 0 else 1)
+
+    except exceptions.ConfigFileNotFoundError as e:
+        error_handler.handle_config_file_not_found_error(e)
+        sys.exit(1)
+    except exceptions.ConfigValidationError as e:
+        error_handler.handle_config_validation_error(e, config)
+        sys.exit(1)
+    except FileNotFoundError as e:
+        error_handler.handle_config_file_not_found_error(exceptions.ConfigFileNotFoundError(str(e)))
+        sys.exit(1)
+    except ValueError as e:
+        logger.error(f"Validation error: {e}")
         sys.exit(1)
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
