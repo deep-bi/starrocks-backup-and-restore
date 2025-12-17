@@ -127,6 +127,10 @@ def init(config):
         ops_database = config_module.get_ops_database(cfg)
 
         with database:
+            logger.info("Validating repository...")
+            repository.ensure_repository(database, cfg["repository"])
+            logger.info("")
+
             logger.info("Initializing ops schema...")
             schema.initialize_ops_schema(
                 database, ops_database=ops_database, table_inventory_entries=table_inventory_entries
