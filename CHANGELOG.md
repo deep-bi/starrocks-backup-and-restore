@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **New Command**: `prune` - Manage backup lifecycle with flexible retention policies
+  - Multiple pruning strategies: `--keep-last`, `--older-than`, `--snapshot`, `--snapshots`
+  - Group-specific pruning with `--group` filter
+  - Dry-run mode (`--dry-run`) to preview deletions before executing
+  - Auto-confirmation with `--yes` flag for automation
+  - Automatically cleans up backup history and partition metadata after deletion
+  - Comprehensive documentation with integration testing guide
+- **Test Coverage**: 52 comprehensive tests (31 unit tests + 21 integration tests) for prune command
+  - 100% code coverage for `prune.py` module
+  - Proper unit tests following TDD principles with equivalence classes and boundary value analysis
+
 ## [0.5.2] - 2025-12-09
 
 ### Fixed

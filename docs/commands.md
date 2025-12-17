@@ -211,6 +211,148 @@ ORDER BY started_at DESC
 LIMIT 10;
 ```
 
+## prune
+
+Delete old backups to manage repository storage using various pruning strategies.
+
+### Syntax
+
+```bash
+starrocks-br prune --config <config_file> [--group <group_name>] [STRATEGY] [--dry-run] [--yes]
+```
+
+### Pruning Strategies
+
+You must specify exactly ONE of the following strategies:
+
+| Strategy | Description |
+|----------|-------------|
+| `--keep-last N` | Keep only the N most recent backups, delete the rest |
+| `--older-than TIMESTAMP` | Delete backups older than the specified timestamp |
+| `--snapshot LABEL` | Delete a specific backup by label |
+| `--snapshots LABEL1,LABEL2,...` | Delete multiple specific backups (comma-separated) |
+
+### Parameters
+
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `--config` | Yes | Path to configuration file |
+| `--group` | No | Only prune backups for this inventory group |
+| `--keep-last` | Strategy | Keep N most recent backups (must be positive integer) |
+| `--older-than` | Strategy | Delete backups older than this timestamp (format: `YYYY-MM-DD HH:MM:SS`) |
+| `--snapshot` | Strategy | Delete this specific backup label |
+| `--snapshots` | Strategy | Delete these specific backup labels (comma-separated) |
+| `--dry-run` | No | Show what would be deleted without actually deleting |
+| `--yes` | No | Skip confirmation prompt |
+
+### Examples
+
+**Keep only last 5 backups:**
+```bash
+starrocks-br prune --config config.yaml --keep-last 5
+```
+
+**Keep last 3 backups for a specific group:**
+```bash
+starrocks-br prune --config config.yaml --group production_tables --keep-last 3
+```
+
+**Delete backups older than a specific date:**
+```bash
+starrocks-br prune --config config.yaml --older-than "2024-01-01 00:00:00"
+```
+
+**Delete a specific backup:**
+```bash
+starrocks-br prune --config config.yaml --snapshot sales_db_20240101_full
+```
+
+**Delete multiple specific backups:**
+```bash
+starrocks-br prune --config config.yaml --snapshots backup1,backup2,backup3
+```
+
+**Dry run to preview deletion:**
+```bash
+starrocks-br prune --config config.yaml --keep-last 5 --dry-run
+```
+
+**Auto-confirm deletion:**
+```bash
+starrocks-br prune --config config.yaml --keep-last 5 --yes
+```
+
+### Workflow
+
+1. **Lists snapshots**: Queries successful backups from `ops.backup_history`
+2. **Filters by strategy**: Determines which backups to delete based on your chosen strategy
+3. **Shows preview**: Displays what will be deleted (unless `--yes` is used)
+4. **Confirms**: Asks for confirmation (unless `--yes` or `--dry-run`)
+5. **Deletes snapshots**: Executes `DROP SNAPSHOT` for each backup
+6. **Cleans history**: Removes entries from `ops.backup_history` and `ops.backup_partitions`
+
+### Finding Backups to Prune
+
+```sql
+-- List all successful backups
+SELECT label, finished_at,
+       DATEDIFF(NOW(), finished_at) as days_old
+FROM ops.backup_history
+WHERE status = 'FINISHED'
+ORDER BY finished_at DESC;
+
+-- Count backups per group
+SELECT ti.inventory_group, COUNT(DISTINCT bh.label) as backup_count
+FROM ops.backup_history bh
+JOIN ops.backup_partitions bp ON bh.label = bp.label
+JOIN ops.table_inventory ti ON bp.database_name = ti.database_name
+WHERE bh.status = 'FINISHED'
+GROUP BY ti.inventory_group;
+```
+
+### Important Notes
+
+- **Irreversible**: Pruning permanently deletes backups from the repository
+- **Group filtering**: Use `--group` to prune only specific backup groups
+- **Dry run first**: Always test with `--dry-run` before actual deletion
+- **Keep-last counts**: Sorted by `finished_at` timestamp (oldest deleted first)
+- **Timestamp format**: Must be `YYYY-MM-DD HH:MM:SS` (24-hour format)
+
+### Testing Integration
+
+For integration testing, you can:
+
+1. **Create test backups:**
+```bash
+starrocks-br backup full --config config.yaml --group test_group --name test_backup_1
+starrocks-br backup full --config config.yaml --group test_group --name test_backup_2
+starrocks-br backup full --config config.yaml --group test_group --name test_backup_3
+```
+
+2. **Verify backups exist:**
+```sql
+SELECT label FROM ops.backup_history WHERE status = 'FINISHED' ORDER BY finished_at;
+```
+
+3. **Test pruning with dry-run:**
+```bash
+starrocks-br prune --config config.yaml --keep-last 1 --dry-run
+```
+
+4. **Execute prune:**
+```bash
+starrocks-br prune --config config.yaml --keep-last 1 --yes
+```
+
+5. **Verify deletion:**
+```sql
+-- Should only show 1 backup remaining
+SELECT label FROM ops.backup_history WHERE status = 'FINISHED';
+
+-- Verify snapshot was dropped from repository
+SHOW SNAPSHOT ON your_repository;
+```
+
 ## Next Steps
 
 - [Scheduling and Monitoring](scheduling.md)
