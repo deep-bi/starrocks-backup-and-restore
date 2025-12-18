@@ -98,3 +98,9 @@ def mock_unhealthy_cluster(mocker):
 def mock_repo_exists(mocker):
     """Mock repository verification success."""
     return mocker.patch("starrocks_br.repository.ensure_repository")
+
+
+@pytest.fixture
+def mock_validate_tables_exist(mocker):
+    """Mock table validation success (no invalid tables)."""
+    return mocker.patch("starrocks_br.planner.validate_tables_exist")

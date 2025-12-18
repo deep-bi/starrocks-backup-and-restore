@@ -122,3 +122,17 @@ class NoFullBackupFoundError(StarRocksBRError):
     def __init__(self, database: str):
         self.database = database
         super().__init__(f"No successful full backup found for database '{database}'")
+
+
+class InvalidTablesInInventoryError(StarRocksBRError):
+    def __init__(self, database: str, invalid_tables: list[str], group: str = None):
+        self.database = database
+        self.invalid_tables = invalid_tables
+        self.group = group
+        tables_str = ", ".join(f"'{t}'" for t in invalid_tables)
+        if group:
+            super().__init__(
+                f"Invalid tables in inventory group '{group}' for database '{database}': {tables_str}"
+            )
+        else:
+            super().__init__(f"Invalid tables for database '{database}': {tables_str}")

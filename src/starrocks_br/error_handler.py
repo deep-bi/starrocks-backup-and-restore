@@ -338,3 +338,31 @@ def handle_no_full_backup_found_error(
         inputs={"Database": exc.database, "--config": config, "--group": group},
         help_links=["starrocks-br backup full --help"],
     )
+
+
+def handle_invalid_tables_in_inventory_error(
+    exc: exceptions.InvalidTablesInInventoryError, config: str = None
+) -> None:
+    ops_db = _get_ops_database_name(config)
+    invalid_tables_str = ", ".join(f"'{t}'" for t in exc.invalid_tables)
+
+    display_structured_error(
+        title="INVALID TABLES IN INVENTORY",
+        reason=f"The following table(s) in the inventory do not exist in database '{exc.database}':\n{invalid_tables_str}\n\nThese tables are referenced in the table inventory but cannot be found in the actual database.",
+        what_to_do=[
+            f"Remove invalid tables from the table inventory:\n     DELETE FROM {ops_db}.table_inventory WHERE database_name = '{exc.database}' AND table_name IN ({invalid_tables_str});",
+            "Verify the table names are spelled correctly in the inventory",
+            f"Check which tables exist in the database:\n     SHOW TABLES FROM `{exc.database}`;",
+            f"Update the inventory with correct table names:\n     UPDATE {ops_db}.table_inventory SET table_name = '<correct_name>' WHERE database_name = '{exc.database}' AND table_name = '<wrong_name>';",
+        ],
+        inputs={
+            "Database": exc.database,
+            "Invalid tables": invalid_tables_str,
+            "Group": exc.group,
+            "--config": config,
+        },
+        help_links=[
+            f"Check {ops_db}.table_inventory for your inventory configuration",
+            "Run 'SHOW TABLES' to see available tables",
+        ],
+    )

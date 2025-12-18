@@ -125,6 +125,7 @@ def test_backup_full_success(
     mock_initialized_schema,
     mock_healthy_cluster,
     mock_repo_exists,
+    mock_validate_tables_exist,
     setup_password_env,
     mocker,
 ):

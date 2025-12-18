@@ -417,6 +417,9 @@ def backup_full(config, group, name):
 
             logger.success(f"Generated label: {label}")
 
+            tables = planner.find_tables_by_group(database, group, ops_database)
+            planner.validate_tables_exist(database, cfg["database"], tables, group)
+
             backup_command = planner.build_full_backup_command(
                 database,
                 group,
@@ -476,6 +479,9 @@ def backup_full(config, group, name):
                 logger.error(f"{result['error_message']}")
                 sys.exit(1)
 
+    except exceptions.InvalidTablesInInventoryError as e:
+        error_handler.handle_invalid_tables_in_inventory_error(e, config)
+        sys.exit(1)
     except exceptions.ConcurrencyConflictError as e:
         error_handler.handle_concurrency_conflict_error(e, config)
         sys.exit(1)

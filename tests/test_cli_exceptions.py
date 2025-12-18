@@ -507,6 +507,7 @@ class TestBackupFullExceptionHandling:
         mock_initialized_schema,  # noqa: ARG002
         mock_healthy_cluster,  # noqa: ARG002
         mock_repo_exists,  # noqa: ARG002
+        mock_validate_tables_exist,  # noqa: ARG002
         mocker,
     ):
         runner = CliRunner()
@@ -538,6 +539,7 @@ class TestBackupFullExceptionHandling:
         mock_initialized_schema,  # noqa: ARG002
         mock_healthy_cluster,  # noqa: ARG002
         mock_repo_exists,  # noqa: ARG002
+        mock_validate_tables_exist,  # noqa: ARG002
         setup_password_env,  # noqa: ARG002
         mocker,
     ):
@@ -602,6 +604,7 @@ class TestBackupFullExceptionHandling:
         mock_initialized_schema,  # noqa: ARG002
         mock_healthy_cluster,  # noqa: ARG002
         mock_repo_exists,  # noqa: ARG002
+        mock_validate_tables_exist,  # noqa: ARG002
         setup_password_env,  # noqa: ARG002
         mocker,
     ):
@@ -644,6 +647,7 @@ class TestBackupFullExceptionHandling:
         mock_initialized_schema,  # noqa: ARG002
         mock_healthy_cluster,  # noqa: ARG002
         mock_repo_exists,  # noqa: ARG002
+        mock_validate_tables_exist,  # noqa: ARG002
         setup_password_env,  # noqa: ARG002
         mocker,
     ):
@@ -690,6 +694,7 @@ class TestBackupFullExceptionHandling:
         mock_initialized_schema,  # noqa: ARG002
         mock_healthy_cluster,  # noqa: ARG002
         mock_repo_exists,  # noqa: ARG002
+        mock_validate_tables_exist,  # noqa: ARG002
         setup_password_env,  # noqa: ARG002
         mocker,
     ):

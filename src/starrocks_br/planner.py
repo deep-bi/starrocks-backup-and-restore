@@ -72,6 +72,42 @@ def find_tables_by_group(db, group_name: str, ops_database: str = "ops") -> list
     return [{"database": row[0], "table": row[1]} for row in rows]
 
 
+def validate_tables_exist(
+    db, database: str, tables: list[dict[str, str]], group: str = None
+) -> None:
+    """Validate that tables in the inventory actually exist in the database.
+
+    Args:
+        db: Database connection
+        database: Database name to validate tables against
+        tables: List of tables with keys: database, table
+        group: Optional inventory group name for better error messages
+
+    Raises:
+        InvalidTablesInInventoryError: If any tables don't exist in the database
+    """
+    if not tables:
+        return
+
+    db_tables = [t for t in tables if t["database"] == database and t["table"] != "*"]
+
+    if not db_tables:
+        return
+
+    show_tables_query = f"SHOW TABLES FROM {utils.quote_identifier(database)}"
+    existing_tables_rows = db.query(show_tables_query)
+    existing_tables = {row[0] for row in existing_tables_rows}
+
+    invalid_tables = []
+    for table_entry in db_tables:
+        table_name = table_entry["table"]
+        if table_name not in existing_tables:
+            invalid_tables.append(table_name)
+
+    if invalid_tables:
+        raise exceptions.InvalidTablesInInventoryError(database, invalid_tables, group)
+
+
 def find_recent_partitions(
     db,
     database: str,
