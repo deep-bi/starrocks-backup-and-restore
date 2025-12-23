@@ -473,67 +473,96 @@ def execute_restore_flow(
         database_name = tables_to_restore[0].split(".")[0]
 
         base_label = restore_pair[0]
-        logger.info("")
-        logger.info(f"Step 1: Restoring base backup '{base_label}'...")
 
-        base_timestamp = get_snapshot_timestamp(db, repo_name, base_label)
+        tables_in_base = get_tables_from_backup(db, base_label, ops_database=ops_database)
+        tables_to_restore_from_base = [t for t in tables_to_restore if t in tables_in_base]
 
-        base_restore_command = _build_restore_command_with_rename(
-            base_label, repo_name, tables_to_restore, rename_suffix, database_name, base_timestamp
-        )
-
-        base_result = execute_restore(
-            db,
-            base_restore_command,
-            base_label,
-            "full",
-            repo_name,
-            database_name,
-            scope="restore",
-            ops_database=ops_database,
-        )
-
-        if not base_result["success"]:
-            return {
-                "success": False,
-                "error_message": f"Base restore failed: {base_result['error_message']}",
-            }
-
-        logger.success("Base restore completed successfully")
-
-        if len(restore_pair) > 1:
-            incremental_label = restore_pair[1]
+        if tables_to_restore_from_base:
             logger.info("")
-            logger.info(f"Step 2: Applying incremental backup '{incremental_label}'...")
+            logger.info(f"Step 1: Restoring base backup '{base_label}'...")
 
-            incremental_timestamp = get_snapshot_timestamp(db, repo_name, incremental_label)
+            base_timestamp = get_snapshot_timestamp(db, repo_name, base_label)
 
-            incremental_restore_command = _build_restore_command_without_rename(
-                incremental_label,
+            base_restore_command = _build_restore_command_with_rename(
+                base_label,
                 repo_name,
-                tables_to_restore,
+                tables_to_restore_from_base,
+                rename_suffix,
                 database_name,
-                incremental_timestamp,
+                base_timestamp,
             )
 
-            incremental_result = execute_restore(
+            base_result = execute_restore(
                 db,
-                incremental_restore_command,
-                incremental_label,
-                "incremental",
+                base_restore_command,
+                base_label,
+                "full",
                 repo_name,
                 database_name,
                 scope="restore",
                 ops_database=ops_database,
             )
 
-            if not incremental_result["success"]:
+            if not base_result["success"]:
                 return {
                     "success": False,
-                    "error_message": f"Incremental restore failed: {incremental_result['error_message']}",
+                    "error_message": f"Base restore failed: {base_result['error_message']}",
                 }
 
-            logger.success("Incremental restore completed successfully")
+            logger.success("Base restore completed successfully")
+        else:
+            logger.info("")
+            logger.info(
+                f"Step 1: Skipping base backup '{base_label}' (no requested tables in this backup)"
+            )
+
+        if len(restore_pair) > 1:
+            incremental_label = restore_pair[1]
+
+            tables_in_incremental = get_tables_from_backup(
+                db, incremental_label, ops_database=ops_database
+            )
+            tables_to_restore_from_incremental = [
+                t for t in tables_to_restore if t in tables_in_incremental
+            ]
+
+            if tables_to_restore_from_incremental:
+                logger.info("")
+                logger.info(f"Step 2: Applying incremental backup '{incremental_label}'...")
+
+                incremental_timestamp = get_snapshot_timestamp(db, repo_name, incremental_label)
+
+                incremental_restore_command = _build_restore_command_without_rename(
+                    incremental_label,
+                    repo_name,
+                    tables_to_restore_from_incremental,
+                    database_name,
+                    incremental_timestamp,
+                )
+
+                incremental_result = execute_restore(
+                    db,
+                    incremental_restore_command,
+                    incremental_label,
+                    "incremental",
+                    repo_name,
+                    database_name,
+                    scope="restore",
+                    ops_database=ops_database,
+                )
+
+                if not incremental_result["success"]:
+                    return {
+                        "success": False,
+                        "error_message": f"Incremental restore failed: {incremental_result['error_message']}",
+                    }
+
+                logger.success("Incremental restore completed successfully")
+            else:
+                logger.info("")
+                logger.info(
+                    f"Step 2: Skipping incremental backup '{incremental_label}' (no requested tables in this backup)"
+                )
 
         logger.info("")
         logger.info("Step 3: Performing atomic rename...")

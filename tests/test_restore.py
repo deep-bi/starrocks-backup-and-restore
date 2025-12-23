@@ -1165,6 +1165,10 @@ def test_should_execute_restore_flow_with_full_backup(mocker):
     mocker.patch(
         "starrocks_br.restore.get_snapshot_timestamp", return_value="2025-10-21-13-51-17-465"
     )
+    mocker.patch(
+        "starrocks_br.restore.get_tables_from_backup",
+        return_value=["sales_db.fact_sales", "sales_db.dim_customers"],
+    )
     mocker.patch("starrocks_br.restore.execute_restore", return_value={"success": True})
     mocker.patch("starrocks_br.restore._perform_atomic_rename", return_value={"success": True})
 
@@ -1192,6 +1196,9 @@ def test_should_execute_restore_flow_with_incremental_backup(mocker):
 
     mocker.patch(
         "starrocks_br.restore.get_snapshot_timestamp", return_value="2025-10-21-13-51-17-465"
+    )
+    mocker.patch(
+        "starrocks_br.restore.get_tables_from_backup", return_value=["sales_db.fact_sales"]
     )
     mocker.patch("starrocks_br.restore.execute_restore", return_value={"success": True})
     mocker.patch("starrocks_br.restore._perform_atomic_rename", return_value={"success": True})
@@ -1237,6 +1244,9 @@ def test_should_skip_confirmation_when_skip_confirmation_is_true(mocker):
     mocker.patch(
         "starrocks_br.restore.get_snapshot_timestamp", return_value="2025-10-21-13-51-17-465"
     )
+    mocker.patch(
+        "starrocks_br.restore.get_tables_from_backup", return_value=["sales_db.fact_sales"]
+    )
     mocker.patch("starrocks_br.restore.execute_restore", return_value={"success": True})
     mocker.patch("starrocks_br.restore._perform_atomic_rename", return_value={"success": True})
 
@@ -1262,6 +1272,9 @@ def test_should_fail_restore_flow_when_base_restore_fails(mocker):
         "starrocks_br.restore.get_snapshot_timestamp", return_value="2025-10-21-13-51-17-465"
     )
     mocker.patch(
+        "starrocks_br.restore.get_tables_from_backup", return_value=["sales_db.fact_sales"]
+    )
+    mocker.patch(
         "starrocks_br.restore.execute_restore",
         return_value={"success": False, "error_message": "Base restore failed"},
     )
@@ -1283,6 +1296,9 @@ def test_should_fail_restore_flow_when_incremental_restore_fails(mocker):
 
     mocker.patch(
         "starrocks_br.restore.get_snapshot_timestamp", return_value="2025-10-21-13-51-17-465"
+    )
+    mocker.patch(
+        "starrocks_br.restore.get_tables_from_backup", return_value=["sales_db.fact_sales"]
     )
 
     def mock_execute_restore(
@@ -1312,6 +1328,9 @@ def test_should_fail_restore_flow_when_atomic_rename_fails(mocker):
 
     mocker.patch(
         "starrocks_br.restore.get_snapshot_timestamp", return_value="2025-10-21-13-51-17-465"
+    )
+    mocker.patch(
+        "starrocks_br.restore.get_tables_from_backup", return_value=["sales_db.fact_sales"]
     )
     mocker.patch("starrocks_br.restore.execute_restore", return_value={"success": True})
     mocker.patch(
@@ -1352,6 +1371,9 @@ def test_should_include_correct_timestamp_in_restore_commands(mocker):
 
     mock_timestamp = "2025-10-21-13-51-17-465"
     mocker.patch("starrocks_br.restore.get_snapshot_timestamp", return_value=mock_timestamp)
+    mocker.patch(
+        "starrocks_br.restore.get_tables_from_backup", return_value=["sales_db.fact_sales"]
+    )
 
     execute_restore_mock = mocker.patch(
         "starrocks_br.restore.execute_restore", return_value={"success": True}
@@ -1524,3 +1546,71 @@ def test_should_handle_restore_backoff_with_immediate_completion(mocker):
     assert status["state"] == "FINISHED"
     # Should not sleep if already finished
     assert sleep_mock.call_count == 0
+
+
+def test_should_restore_table_that_only_exists_in_incremental_backup(mocker):
+    """Test restoring a table that was added after full backup and only exists in incremental.
+
+    Scenario:
+    - Full backup contains: crashdata
+    - Incremental backup contains: weatherdata (new table added after full backup)
+    - User wants to restore weatherdata
+
+    Expected behavior:
+    - Should skip weatherdata in base restore (doesn't exist in full backup)
+    - Should restore weatherdata from incremental backup
+    - Should succeed
+    """
+    db = mocker.Mock()
+    repo_name = "my_repo"
+    restore_pair = ["quickstart_20251223_full", "quickstart_20251223_incremental"]
+    tables_to_restore = ["quickstart.weatherdata"]
+    rename_suffix = "_restored"
+
+    # Mock get_snapshot_timestamp
+    mocker.patch(
+        "starrocks_br.restore.get_snapshot_timestamp", return_value="2025-12-23-14-26-12-000"
+    )
+
+    # Mock get_tables_from_backup to return which tables exist in each backup
+    def mock_get_tables_from_backup(db, label, group=None, table=None, database=None, ops_database="ops"):
+        if label == "quickstart_20251223_full":
+            # Full backup only has crashdata
+            return ["quickstart.crashdata"]
+        elif label == "quickstart_20251223_incremental":
+            # Incremental backup has weatherdata
+            return ["quickstart.weatherdata"]
+        return []
+
+    mocker.patch("starrocks_br.restore.get_tables_from_backup", side_effect=mock_get_tables_from_backup)
+
+    # Mock execute_restore - should only be called for incremental (not base)
+    execute_restore_mock = mocker.patch(
+        "starrocks_br.restore.execute_restore", return_value={"success": True}
+    )
+
+    # Mock atomic rename
+    mocker.patch("starrocks_br.restore._perform_atomic_rename", return_value={"success": True})
+
+    # Skip confirmation
+    mocker.patch("builtins.input", return_value="y")
+
+    result = restore.execute_restore_flow(
+        db, repo_name, restore_pair, tables_to_restore, rename_suffix
+    )
+
+    # Should succeed
+    assert result["success"] is True
+    assert "Restore completed successfully" in result["message"]
+
+    # execute_restore should be called once for incremental only (weatherdata doesn't exist in full backup)
+    # Currently this will fail because it tries to restore from both backups
+    assert execute_restore_mock.call_count == 1
+
+    # Verify the incremental restore was called
+    call_args = execute_restore_mock.call_args_list[0]
+    restore_command = call_args[0][1]
+    backup_label = call_args[0][2]
+
+    assert backup_label == "quickstart_20251223_incremental"
+    assert "weatherdata" in restore_command
