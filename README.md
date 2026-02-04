@@ -38,6 +38,7 @@ This tool adds **incremental backup capabilities** to StarRocks by leveraging na
 - ✅ **Complete operation tracking** - Every backup and restore is logged with status, timestamps, and error details
 - ✅ **Intelligent restore** - Automatically resolves backup chains (full + incremental) for you
 - ✅ **Inventory groups** - Organize tables into groups with different backup strategies
+- ✅ **Backup lifecycle management** - Prune old backups with flexible retention policies (keep-last, older-than, specific snapshots)
 - ✅ **Job concurrency control** - Prevents conflicting operations
 - ✅ **Safe restores** - Atomic rename mechanism prevents data loss during restore
 - ✅ **Metadata management** - Dedicated `ops` database tracks all backup metadata and partition manifests
@@ -127,6 +128,15 @@ starrocks-br backup incremental --config config.yaml --group production
 ```bash
 # Tool automatically resolves backup chains
 starrocks-br restore --config config.yaml --target-label mydb_20251118_full
+```
+
+**Prune old backups:**
+```bash
+# Keep only last 5 backups
+starrocks-br prune --config config.yaml --keep-last 5
+
+# Delete backups older than a date
+starrocks-br prune --config config.yaml --older-than "2024-01-01 00:00:00"
 ```
 
 See [Commands Reference](docs/commands.md) for all options.

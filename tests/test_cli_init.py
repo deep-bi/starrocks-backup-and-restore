@@ -53,7 +53,7 @@ def test_init_fails_when_repository_not_found(config_file, mock_db, setup_passwo
         side_effect=RuntimeError(
             "Repository 'test_repo' not found. Please create it first using:\n"
             "  CREATE REPOSITORY test_repo WITH BROKER ON LOCATION '...' PROPERTIES(...)\n"
-            "For examples, see: https://docs.starrocks.io/docs/sql-reference/sql-statements/backup_restore/CREATE_REPOSITORY/"
+            "For examples, see: https://docs.starrocks.io/docs/sql-reference/sql-statements/data-definition/backup_restore/CREATE_REPOSITORY/"
         ),
     )
 
