@@ -70,9 +70,7 @@ def get_successful_backups(
     return results
 
 
-def filter_snapshots_to_delete(
-    all_snapshots: list[dict], strategy: str, **kwargs
-) -> list[dict]:
+def filter_snapshots_to_delete(all_snapshots: list[dict], strategy: str, **kwargs) -> list[dict]:
     """Filter snapshots based on pruning strategy.
 
     Args:
@@ -95,7 +93,7 @@ def filter_snapshots_to_delete(
         # Keep the last N, delete the rest
         if len(all_snapshots) <= count:
             return []
-        return all_snapshots[: -count]  # Delete all except last N
+        return all_snapshots[:-count]  # Delete all except last N
 
     elif strategy == "older_than":
         timestamp_str = kwargs.get("timestamp")

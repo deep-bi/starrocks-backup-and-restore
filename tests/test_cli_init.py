@@ -70,7 +70,9 @@ def test_init_fails_when_repository_has_errors(config_file, mock_db, setup_passw
 
     mocker.patch(
         "starrocks_br.repository.ensure_repository",
-        side_effect=RuntimeError("Repository 'test_repo' has errors: Connection failed: auth error"),
+        side_effect=RuntimeError(
+            "Repository 'test_repo' has errors: Connection failed: auth error"
+        ),
     )
 
     result = runner.invoke(cli.init, ["--config", config_file])

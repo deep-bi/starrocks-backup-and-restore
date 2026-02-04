@@ -855,7 +855,9 @@ def prune_command(config, group, keep_last, older_than, snapshot, snapshots, dry
                 logger.warning(f"Failed to delete {failed_count} snapshot(s)")
 
             if keep_last:
-                logger.success(f"Kept {len(all_backups) - len(snapshots_to_delete)} most recent backup(s)")
+                logger.success(
+                    f"Kept {len(all_backups) - len(snapshots_to_delete)} most recent backup(s)"
+                )
 
             sys.exit(0 if failed_count == 0 else 1)
 

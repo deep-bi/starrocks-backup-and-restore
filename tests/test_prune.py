@@ -191,9 +191,7 @@ class TestFilterSnapshotsToDelete:
         snapshots = [{"label": "backup1", "finished_at": "2024-01-01 00:00:00"}]
 
         with pytest.raises(ValueError, match="Invalid timestamp format"):
-            prune.filter_snapshots_to_delete(
-                snapshots, "older_than", timestamp="invalid-date"
-            )
+            prune.filter_snapshots_to_delete(snapshots, "older_than", timestamp="invalid-date")
 
     def test_older_than_wrong_format(self):
         """Test older_than with wrong but valid-looking timestamp format."""
@@ -224,9 +222,7 @@ class TestFilterSnapshotsToDelete:
             {"label": "backup2", "finished_at": "2024-01-02 00:00:00"},
         ]
 
-        result = prune.filter_snapshots_to_delete(
-            snapshots, "specific", snapshot="nonexistent"
-        )
+        result = prune.filter_snapshots_to_delete(snapshots, "specific", snapshot="nonexistent")
 
         assert result == []
 

@@ -1200,9 +1200,7 @@ def test_should_execute_restore_flow_with_incremental_backup(mocker):
     mocker.patch(
         "starrocks_br.restore.get_tables_from_backup", return_value=["sales_db.fact_sales"]
     )
-    mocker.patch(
-        "starrocks_br.restore.get_partitions_from_backup", return_value=["fact_sales"]
-    )
+    mocker.patch("starrocks_br.restore.get_partitions_from_backup", return_value=["fact_sales"])
     mocker.patch("starrocks_br.restore.execute_restore", return_value={"success": True})
     mocker.patch("starrocks_br.restore._perform_atomic_rename", return_value={"success": True})
 
@@ -1303,9 +1301,7 @@ def test_should_fail_restore_flow_when_incremental_restore_fails(mocker):
     mocker.patch(
         "starrocks_br.restore.get_tables_from_backup", return_value=["sales_db.fact_sales"]
     )
-    mocker.patch(
-        "starrocks_br.restore.get_partitions_from_backup", return_value=["fact_sales"]
-    )
+    mocker.patch("starrocks_br.restore.get_partitions_from_backup", return_value=["fact_sales"])
 
     def mock_execute_restore(
         db, command, backup_label, restore_type, repo, database, scope="restore", ops_database="ops"
@@ -1579,7 +1575,9 @@ def test_should_restore_table_that_only_exists_in_incremental_backup(mocker):
     )
 
     # Mock get_tables_from_backup to return which tables exist in each backup
-    def mock_get_tables_from_backup(db, label, group=None, table=None, database=None, ops_database="ops"):
+    def mock_get_tables_from_backup(
+        db, label, group=None, table=None, database=None, ops_database="ops"
+    ):
         if label == "quickstart_20251223_full":
             # Full backup only has crashdata
             return ["quickstart.crashdata"]
@@ -1588,7 +1586,9 @@ def test_should_restore_table_that_only_exists_in_incremental_backup(mocker):
             return ["quickstart.weatherdata"]
         return []
 
-    mocker.patch("starrocks_br.restore.get_tables_from_backup", side_effect=mock_get_tables_from_backup)
+    mocker.patch(
+        "starrocks_br.restore.get_tables_from_backup", side_effect=mock_get_tables_from_backup
+    )
 
     # Mock get_partitions_from_backup to return partition list for each table
     def mock_get_partitions_from_backup(db, label, table, ops_database="ops"):
@@ -1635,9 +1635,7 @@ def test_should_restore_table_that_only_exists_in_incremental_backup(mocker):
 
     # CRITICAL: Table only in incremental must use partition-level restore with AS clause
     # Format: TABLE weatherdata PARTITION (weatherdata) AS weatherdata_restored
-    assert "PARTITION" in restore_command, (
-        "Incremental restore must use partition-level syntax"
-    )
+    assert "PARTITION" in restore_command, "Incremental restore must use partition-level syntax"
     assert "AS `weatherdata_restored`" in restore_command, (
         "Tables only in incremental must be restored with _restored suffix using AS clause"
     )
@@ -1670,14 +1668,18 @@ def test_should_restore_table_in_both_backups_using_partition_level_incremental(
     )
 
     # Mock get_tables_from_backup
-    def mock_get_tables_from_backup(db, label, group=None, table=None, database=None, ops_database="ops"):
+    def mock_get_tables_from_backup(
+        db, label, group=None, table=None, database=None, ops_database="ops"
+    ):
         if label == "orders_20260106_full":
             return ["quickstart.orders"]
         elif label == "orders_20260106_incremental":
             return ["quickstart.orders"]
         return []
 
-    mocker.patch("starrocks_br.restore.get_tables_from_backup", side_effect=mock_get_tables_from_backup)
+    mocker.patch(
+        "starrocks_br.restore.get_tables_from_backup", side_effect=mock_get_tables_from_backup
+    )
 
     # Mock get_partitions_from_backup
     def mock_get_partitions_from_backup(db, label, table, ops_database="ops"):
@@ -1734,15 +1736,15 @@ def test_should_restore_table_in_both_backups_using_partition_level_incremental(
     inc_label = inc_call[0][2]
 
     assert inc_label == "orders_20260106_incremental"
-    assert "PARTITION" in inc_command, (
-        "Incremental restore must use partition-level syntax"
-    )
+    assert "PARTITION" in inc_command, "Incremental restore must use partition-level syntax"
     assert "TABLE `orders_restored`" in inc_command, (
         "Incremental restore must target the _restored table (without AS)"
     )
     assert "PARTITION (`p202503`, `p202504`)" in inc_command, (
         "Incremental restore must specify the partitions from incremental backup"
     )
-    assert "AS " not in inc_command or inc_command.index("PARTITION") < inc_command.index("AS ") if "AS " in inc_command else True, (
-        "Incremental restore for table in base should not use AS clause after table name"
-    )
+    assert (
+        "AS " not in inc_command or inc_command.index("PARTITION") < inc_command.index("AS ")
+        if "AS " in inc_command
+        else True
+    ), "Incremental restore for table in base should not use AS clause after table name"

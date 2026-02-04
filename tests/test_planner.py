@@ -770,7 +770,7 @@ def test_should_raise_error_when_tables_do_not_exist(db_with_timezone):
         planner.validate_tables_exist(db_with_timezone, "sales_db", tables)
 
     assert exc_info.value.database == "sales_db"
-    assert exc_info.value.group == None
+    assert exc_info.value.group is None
     assert "invalid_table" in exc_info.value.invalid_tables
     assert "another_invalid" in exc_info.value.invalid_tables
     assert "fact_sales" not in exc_info.value.invalid_tables

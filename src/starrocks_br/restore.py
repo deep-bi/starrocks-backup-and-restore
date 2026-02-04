@@ -423,9 +423,7 @@ def get_tables_from_backup(
     return tables
 
 
-def get_partitions_from_backup(
-    db, label: str, table: str, ops_database: str = "ops"
-) -> list[str]:
+def get_partitions_from_backup(db, label: str, table: str, ops_database: str = "ops") -> list[str]:
     """Get list of partitions for a specific table from backup manifest.
 
     Args:
@@ -572,7 +570,9 @@ def execute_restore_flow(
                     )
 
                     if not partitions:
-                        logger.warning(f"No partitions found for {table} in {incremental_label}, skipping")
+                        logger.warning(
+                            f"No partitions found for {table} in {incremental_label}, skipping"
+                        )
                         continue
 
                     table_was_in_base = table in tables_to_restore_from_base

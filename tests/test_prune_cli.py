@@ -87,7 +87,7 @@ def test_prune_older_than_success(
     )
 
     mock_execute = mocker.patch("starrocks_br.prune.execute_drop_snapshot")
-    mock_cleanup = mocker.patch("starrocks_br.prune.cleanup_backup_history")
+    mocker.patch("starrocks_br.prune.cleanup_backup_history")
 
     result = runner.invoke(
         cli.prune_command,
@@ -100,7 +100,6 @@ def test_prune_older_than_success(
     assert mock_execute.call_count == 2
     mock_execute.assert_any_call(mock_db, "test_repo", "backup_20231201")
     mock_execute.assert_any_call(mock_db, "test_repo", "backup_20240101")
-
 
 
 def test_prune_single_snapshot_success(
@@ -176,7 +175,13 @@ def test_prune_multiple_snapshots_success(
 
     result = runner.invoke(
         cli.prune_command,
-        ["--config", config_file, "--snapshots", "backup_20240101,backup_20240102,backup_20240103", "--yes"],
+        [
+            "--config",
+            config_file,
+            "--snapshots",
+            "backup_20240101,backup_20240102,backup_20240103",
+            "--yes",
+        ],
     )
 
     assert result.exit_code == 0
@@ -523,7 +528,7 @@ def test_prune_cleanup_history_after_deletion(
     )
 
     mocker.patch("starrocks_br.prune.verify_snapshot_exists", return_value=True)
-    mock_execute = mocker.patch("starrocks_br.prune.execute_drop_snapshot")
+    mocker.patch("starrocks_br.prune.execute_drop_snapshot")
     mock_cleanup = mocker.patch("starrocks_br.prune.cleanup_backup_history")
 
     result = runner.invoke(
@@ -569,6 +574,7 @@ def test_prune_partial_failure_continues_deletion(
     mock_db.query.side_effect = query_side_effect
 
     call_count = {"count": 0}
+
     def mock_execute_side_effect(db, repo, snapshot):
         call_count["count"] += 1
         if call_count["count"] == 2:
@@ -578,15 +584,14 @@ def test_prune_partial_failure_continues_deletion(
         "starrocks_br.prune.execute_drop_snapshot",
         side_effect=mock_execute_side_effect,
     )
-    mock_cleanup = mocker.patch("starrocks_br.prune.cleanup_backup_history")
+    mocker.patch("starrocks_br.prune.cleanup_backup_history")
 
-    result = runner.invoke(
+    runner.invoke(
         cli.prune_command,
         ["--config", config_file, "--snapshots", "backup1,backup2,backup3", "--yes"],
     )
 
     assert mock_execute.call_count == 3
-
 
 
 def test_prune_with_group_filter_keep_last(
@@ -603,10 +608,26 @@ def test_prune_with_group_filter_keep_last(
 
     # Mock snapshots from different groups
     mock_snapshots = [
-        {"label": "prod_backup_20240101", "finished_at": "2024-01-01 00:00:00", "inventory_group": "production_tables"},
-        {"label": "prod_backup_20240102", "finished_at": "2024-01-02 00:00:00", "inventory_group": "production_tables"},
-        {"label": "prod_backup_20240103", "finished_at": "2024-01-03 00:00:00", "inventory_group": "production_tables"},
-        {"label": "test_backup_20240101", "finished_at": "2024-01-01 00:00:00", "inventory_group": "test_tables"},
+        {
+            "label": "prod_backup_20240101",
+            "finished_at": "2024-01-01 00:00:00",
+            "inventory_group": "production_tables",
+        },
+        {
+            "label": "prod_backup_20240102",
+            "finished_at": "2024-01-02 00:00:00",
+            "inventory_group": "production_tables",
+        },
+        {
+            "label": "prod_backup_20240103",
+            "finished_at": "2024-01-03 00:00:00",
+            "inventory_group": "production_tables",
+        },
+        {
+            "label": "test_backup_20240101",
+            "finished_at": "2024-01-01 00:00:00",
+            "inventory_group": "test_tables",
+        },
     ]
 
     # Mock should return only production_tables backups when group is specified
@@ -616,7 +637,7 @@ def test_prune_with_group_filter_keep_last(
     )
 
     mock_execute = mocker.patch("starrocks_br.prune.execute_drop_snapshot")
-    mock_cleanup = mocker.patch("starrocks_br.prune.cleanup_backup_history")
+    mocker.patch("starrocks_br.prune.cleanup_backup_history")
 
     result = runner.invoke(
         cli.prune_command,
@@ -633,7 +654,6 @@ def test_prune_with_group_filter_keep_last(
     assert "test_backup" not in str(mock_execute.call_args_list)
 
 
-
 def test_prune_with_group_filter_older_than(
     config_file,
     mock_db,
@@ -647,9 +667,21 @@ def test_prune_with_group_filter_older_than(
     runner = CliRunner()
 
     mock_snapshots = [
-        {"label": "prod_backup_20231201", "finished_at": "2023-12-01 00:00:00", "inventory_group": "production_tables"},
-        {"label": "prod_backup_20240101", "finished_at": "2024-01-01 00:00:00", "inventory_group": "production_tables"},
-        {"label": "test_backup_20231201", "finished_at": "2023-12-01 00:00:00", "inventory_group": "test_tables"},
+        {
+            "label": "prod_backup_20231201",
+            "finished_at": "2023-12-01 00:00:00",
+            "inventory_group": "production_tables",
+        },
+        {
+            "label": "prod_backup_20240101",
+            "finished_at": "2024-01-01 00:00:00",
+            "inventory_group": "production_tables",
+        },
+        {
+            "label": "test_backup_20231201",
+            "finished_at": "2023-12-01 00:00:00",
+            "inventory_group": "test_tables",
+        },
     ]
 
     # Mock should return only production_tables backups when group is specified
@@ -659,11 +691,19 @@ def test_prune_with_group_filter_older_than(
     )
 
     mock_execute = mocker.patch("starrocks_br.prune.execute_drop_snapshot")
-    mock_cleanup = mocker.patch("starrocks_br.prune.cleanup_backup_history")
+    mocker.patch("starrocks_br.prune.cleanup_backup_history")
 
     result = runner.invoke(
         cli.prune_command,
-        ["--config", config_file, "--group", "production_tables", "--older-than", "2024-01-01 00:00:00", "--yes"],
+        [
+            "--config",
+            config_file,
+            "--group",
+            "production_tables",
+            "--older-than",
+            "2024-01-01 00:00:00",
+            "--yes",
+        ],
     )
 
     assert result.exit_code == 0
@@ -689,10 +729,26 @@ def test_prune_without_group_affects_all_backups(
     runner = CliRunner()
 
     mock_snapshots = [
-        {"label": "prod_backup_20240101", "finished_at": "2024-01-01 00:00:00", "inventory_group": "production_tables"},
-        {"label": "test_backup_20240102", "finished_at": "2024-01-02 00:00:00", "inventory_group": "test_tables"},
-        {"label": "prod_backup_20240103", "finished_at": "2024-01-03 00:00:00", "inventory_group": "production_tables"},
-        {"label": "test_backup_20240104", "finished_at": "2024-01-04 00:00:00", "inventory_group": "test_tables"},
+        {
+            "label": "prod_backup_20240101",
+            "finished_at": "2024-01-01 00:00:00",
+            "inventory_group": "production_tables",
+        },
+        {
+            "label": "test_backup_20240102",
+            "finished_at": "2024-01-02 00:00:00",
+            "inventory_group": "test_tables",
+        },
+        {
+            "label": "prod_backup_20240103",
+            "finished_at": "2024-01-03 00:00:00",
+            "inventory_group": "production_tables",
+        },
+        {
+            "label": "test_backup_20240104",
+            "finished_at": "2024-01-04 00:00:00",
+            "inventory_group": "test_tables",
+        },
     ]
 
     mocker.patch(
@@ -701,7 +757,7 @@ def test_prune_without_group_affects_all_backups(
     )
 
     mock_execute = mocker.patch("starrocks_br.prune.execute_drop_snapshot")
-    mock_cleanup = mocker.patch("starrocks_br.prune.cleanup_backup_history")
+    mocker.patch("starrocks_br.prune.cleanup_backup_history")
 
     result = runner.invoke(
         cli.prune_command,
@@ -713,7 +769,6 @@ def test_prune_without_group_affects_all_backups(
     assert mock_execute.call_count == 2
     mock_execute.assert_any_call(mock_db, "test_repo", "prod_backup_20240101")
     mock_execute.assert_any_call(mock_db, "test_repo", "test_backup_20240102")
-
 
 
 def test_prune_group_not_found(
