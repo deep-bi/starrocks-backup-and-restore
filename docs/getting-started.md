@@ -85,6 +85,20 @@ port: 9030
 user: "root"
 database: "your_database"       # The database you want to backup
 repository: "my_backup_repo"    # The repository you created above
+
+# Optional: Define table inventory groups in the config file
+table_inventory:
+  - group: "important_tables"
+    tables:
+      - database: "your_database"
+        table: "users"
+      - database: "your_database"
+        table: "orders"
+
+  - group: "full_backup"
+    tables:
+      - database: "your_database"
+        table: "*"  # Wildcard for all tables
 ```
 
 Set your database password as an environment variable (never store passwords in config files):
@@ -118,7 +132,23 @@ This creates:
 
 Now decide which tables you want to back up and how to group them.
 
-Connect to your StarRocks cluster and populate the inventory:
+### Option 1: Define in Config File (Recommended)
+
+If you included `table_inventory` in your `config.yaml`, the init command automatically populated your groups. You can verify:
+
+```sql
+SELECT * FROM ops.table_inventory;
+```
+
+**Important:** If you add or modify tables in the `table_inventory` section of your config file later, rerun the init command to update the database:
+
+```bash
+starrocks-br init --config config.yaml
+```
+
+### Option 2: Manual SQL Insert
+
+Alternatively, connect to your StarRocks cluster and populate the inventory manually:
 
 ```sql
 -- Example: Create a group for important tables

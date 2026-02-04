@@ -201,8 +201,21 @@ def execute_restore(
     max_polls: int = MAX_POLLS,
     poll_interval: float = 1.0,
     scope: str = "restore",
+    ops_database: str = "ops",
 ) -> dict:
     """Execute a complete restore workflow: submit command and monitor progress.
+
+    Args:
+        db: Database connection
+        restore_command: Restore SQL command to execute
+        backup_label: Label of the backup being restored
+        restore_type: Type of restore operation
+        repository: Repository name
+        database: Database name
+        max_polls: Maximum polling attempts
+        poll_interval: Seconds between polls
+        scope: Job scope (for concurrency control)
+        ops_database: Name of ops database (default: "ops")
 
     Returns dictionary with keys: success, final_status, error_message
     """
@@ -240,13 +253,18 @@ def execute_restore(
                     "finished_at": finished_at,
                     "error_message": None if success else final_status["state"],
                 },
+                ops_database=ops_database,
             )
         except Exception as e:
             logger.error(f"Failed to log restore history: {str(e)}")
 
         try:
             concurrency.complete_job_slot(
-                db, scope=scope, label=label, final_state=final_status["state"]
+                db,
+                scope=scope,
+                label=label,
+                final_state=final_status["state"],
+                ops_database=ops_database,
             )
         except Exception as e:
             logger.error(f"Failed to complete job slot: {str(e)}")
@@ -264,7 +282,7 @@ def execute_restore(
         return {"success": False, "final_status": None, "error_message": str(e)}
 
 
-def find_restore_pair(db, target_label: str) -> list[str]:
+def find_restore_pair(db, target_label: str, ops_database: str = "ops") -> list[str]:
     """Find the correct sequence of backups needed for restore.
 
     Args:
@@ -280,7 +298,7 @@ def find_restore_pair(db, target_label: str) -> list[str]:
     """
     query = f"""
     SELECT label, backup_type, finished_at
-    FROM ops.backup_history
+    FROM {ops_database}.backup_history
     WHERE label = {utils.quote_value(target_label)}
     AND status = 'FINISHED'
     """
@@ -299,7 +317,7 @@ def find_restore_pair(db, target_label: str) -> list[str]:
 
         full_backup_query = f"""
         SELECT label, backup_type, finished_at
-        FROM ops.backup_history
+        FROM {ops_database}.backup_history
         WHERE backup_type = 'full'
         AND status = 'FINISHED'
         AND label LIKE {utils.quote_value(f"{database_name}_%")}
@@ -326,6 +344,7 @@ def get_tables_from_backup(
     group: str | None = None,
     table: str | None = None,
     database: str | None = None,
+    ops_database: str = "ops",
 ) -> list[str]:
     """Get list of tables to restore from backup manifest.
 
@@ -354,7 +373,7 @@ def get_tables_from_backup(
 
     query = f"""
     SELECT DISTINCT database_name, table_name
-    FROM ops.backup_partitions
+    FROM {ops_database}.backup_partitions
     WHERE label = {utils.quote_value(label)}
     ORDER BY database_name, table_name
     """
@@ -377,7 +396,7 @@ def get_tables_from_backup(
     if group:
         group_query = f"""
         SELECT database_name, table_name
-        FROM ops.table_inventory
+        FROM {ops_database}.table_inventory
         WHERE inventory_group = {utils.quote_value(group)}
         """
 
@@ -404,6 +423,35 @@ def get_tables_from_backup(
     return tables
 
 
+def get_partitions_from_backup(
+    db, label: str, table: str, ops_database: str = "ops"
+) -> list[str]:
+    """Get list of partitions for a specific table from backup manifest.
+
+    Args:
+        db: Database connection
+        label: Backup label
+        table: Table name in format 'database.table'
+        ops_database: Operations database name
+
+    Returns:
+        List of partition names for the table in this backup
+    """
+    database_name, table_name = table.split(".", 1)
+
+    query = f"""
+    SELECT partition_name
+    FROM {ops_database}.backup_partitions
+    WHERE label = {utils.quote_value(label)}
+      AND database_name = {utils.quote_value(database_name)}
+      AND table_name = {utils.quote_value(table_name)}
+    ORDER BY partition_name
+    """
+
+    rows = db.query(query)
+    return [row[0] for row in rows]
+
+
 def execute_restore_flow(
     db,
     repo_name: str,
@@ -411,6 +459,7 @@ def execute_restore_flow(
     tables_to_restore: list[str],
     rename_suffix: str = "_restored",
     skip_confirmation: bool = False,
+    ops_database: str = "ops",
 ) -> dict:
     """Execute the complete restore flow with safety measures.
 
@@ -421,6 +470,7 @@ def execute_restore_flow(
         tables_to_restore: List of tables to restore (format: database.table)
         rename_suffix: Suffix for temporary tables
         skip_confirmation: If True, skip interactive confirmation prompt
+        ops_database: Name of ops database (default: "ops")
 
     Returns:
         Dictionary with success status and details
@@ -452,59 +502,122 @@ def execute_restore_flow(
         database_name = tables_to_restore[0].split(".")[0]
 
         base_label = restore_pair[0]
-        logger.info("")
-        logger.info(f"Step 1: Restoring base backup '{base_label}'...")
 
-        base_timestamp = get_snapshot_timestamp(db, repo_name, base_label)
+        tables_in_base = get_tables_from_backup(db, base_label, ops_database=ops_database)
+        tables_to_restore_from_base = [t for t in tables_to_restore if t in tables_in_base]
 
-        base_restore_command = _build_restore_command_with_rename(
-            base_label, repo_name, tables_to_restore, rename_suffix, database_name, base_timestamp
-        )
-
-        base_result = execute_restore(
-            db, base_restore_command, base_label, "full", repo_name, database_name, scope="restore"
-        )
-
-        if not base_result["success"]:
-            return {
-                "success": False,
-                "error_message": f"Base restore failed: {base_result['error_message']}",
-            }
-
-        logger.success("Base restore completed successfully")
-
-        if len(restore_pair) > 1:
-            incremental_label = restore_pair[1]
+        if tables_to_restore_from_base:
             logger.info("")
-            logger.info(f"Step 2: Applying incremental backup '{incremental_label}'...")
+            logger.info(f"Step 1: Restoring base backup '{base_label}'...")
 
-            incremental_timestamp = get_snapshot_timestamp(db, repo_name, incremental_label)
+            base_timestamp = get_snapshot_timestamp(db, repo_name, base_label)
 
-            incremental_restore_command = _build_restore_command_without_rename(
-                incremental_label,
+            base_restore_command = _build_restore_command_with_rename(
+                base_label,
                 repo_name,
-                tables_to_restore,
+                tables_to_restore_from_base,
+                rename_suffix,
                 database_name,
-                incremental_timestamp,
+                base_timestamp,
             )
 
-            incremental_result = execute_restore(
+            base_result = execute_restore(
                 db,
-                incremental_restore_command,
-                incremental_label,
-                "incremental",
+                base_restore_command,
+                base_label,
+                "full",
                 repo_name,
                 database_name,
                 scope="restore",
+                ops_database=ops_database,
             )
 
-            if not incremental_result["success"]:
+            if not base_result["success"]:
                 return {
                     "success": False,
-                    "error_message": f"Incremental restore failed: {incremental_result['error_message']}",
+                    "error_message": f"Base restore failed: {base_result['error_message']}",
                 }
 
-            logger.success("Incremental restore completed successfully")
+            logger.success("Base restore completed successfully")
+        else:
+            logger.info("")
+            logger.info(
+                f"Step 1: Skipping base backup '{base_label}' (no requested tables in this backup)"
+            )
+
+        if len(restore_pair) > 1:
+            incremental_label = restore_pair[1]
+
+            tables_in_incremental = get_tables_from_backup(
+                db, incremental_label, ops_database=ops_database
+            )
+            tables_to_restore_from_incremental = [
+                t for t in tables_to_restore if t in tables_in_incremental
+            ]
+
+            if not tables_to_restore_from_incremental:
+                logger.info("")
+                logger.info(
+                    f"Step 2: Skipping incremental backup '{incremental_label}' (no requested tables in this backup)"
+                )
+            else:
+                logger.info("")
+                logger.info(f"Step 2: Applying incremental backup '{incremental_label}'...")
+
+                incremental_timestamp = get_snapshot_timestamp(db, repo_name, incremental_label)
+
+                for table in tables_to_restore_from_incremental:
+                    partitions = get_partitions_from_backup(
+                        db, incremental_label, table, ops_database=ops_database
+                    )
+
+                    if not partitions:
+                        logger.warning(f"No partitions found for {table} in {incremental_label}, skipping")
+                        continue
+
+                    table_was_in_base = table in tables_to_restore_from_base
+
+                    if table_was_in_base:
+                        _, table_name = table.split(".", 1)
+                        target_table_name = f"{table_name}{rename_suffix}"
+                        incremental_restore_command = _build_partition_restore_command(
+                            incremental_label,
+                            repo_name,
+                            f"{database_name}.{target_table_name}",
+                            partitions,
+                            database_name,
+                            incremental_timestamp,
+                            rename_suffix=None,
+                        )
+                    else:
+                        incremental_restore_command = _build_partition_restore_command(
+                            incremental_label,
+                            repo_name,
+                            table,
+                            partitions,
+                            database_name,
+                            incremental_timestamp,
+                            rename_suffix=rename_suffix,
+                        )
+
+                    incremental_result = execute_restore(
+                        db,
+                        incremental_restore_command,
+                        incremental_label,
+                        "incremental",
+                        repo_name,
+                        database_name,
+                        scope="restore",
+                        ops_database=ops_database,
+                    )
+
+                    if not incremental_result["success"]:
+                        return {
+                            "success": False,
+                            "error_message": f"Incremental restore failed for {table}: {incremental_result['error_message']}",
+                        }
+
+                logger.success("Incremental restore completed successfully")
 
         logger.info("")
         logger.info("Step 3: Performing atomic rename...")
@@ -568,6 +681,50 @@ def _build_restore_command_without_rename(
     FROM {utils.quote_identifier(repo_name)}
     DATABASE {utils.quote_identifier(database)}
     ON ({on_clause})
+    PROPERTIES ("backup_timestamp" = "{backup_timestamp}")"""
+
+
+def _build_partition_restore_command(
+    backup_label: str,
+    repo_name: str,
+    table: str,
+    partitions: list[str],
+    database: str,
+    backup_timestamp: str,
+    rename_suffix: str | None = None,
+) -> str:
+    """Build partition-level restore command with optional AS clause.
+
+    Args:
+        backup_label: Backup snapshot label
+        repo_name: Repository name
+        table: Table name in format 'database.table'
+        partitions: List of partition names to restore
+        database: Database name
+        backup_timestamp: Backup timestamp
+        rename_suffix: Optional suffix for AS clause (e.g., '_restored')
+
+    Returns:
+        SQL RESTORE command string
+    """
+    _, table_name = table.split(".", 1)
+
+    # Build partition list
+    partition_list = ", ".join([utils.quote_identifier(p) for p in partitions])
+
+    # Build table clause
+    if rename_suffix:
+        # Table only in incremental: use AS clause
+        temp_table_name = f"{table_name}{rename_suffix}"
+        table_clause = f"TABLE {utils.quote_identifier(table_name)} PARTITION ({partition_list}) AS {utils.quote_identifier(temp_table_name)}"
+    else:
+        # Table in base: target the _restored table directly (no AS)
+        table_clause = f"TABLE {utils.quote_identifier(table_name)} PARTITION ({partition_list})"
+
+    return f"""RESTORE SNAPSHOT {utils.quote_identifier(backup_label)}
+    FROM {utils.quote_identifier(repo_name)}
+    DATABASE {utils.quote_identifier(database)}
+    ON ({table_clause})
     PROPERTIES ("backup_timestamp" = "{backup_timestamp}")"""
 
 

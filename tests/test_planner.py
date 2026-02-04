@@ -734,3 +734,110 @@ def test_find_recent_partitions_with_multiple_tables_mixed_timestamps(mocker, db
 
     show_partitions_query_3 = db_with_timezone.query.call_args_list[3][0][0]
     assert "SHOW PARTITIONS FROM `sales_db`.`dim_products`" in show_partitions_query_3
+
+
+def test_should_validate_tables_exist_in_database(db_with_timezone):
+    """Test validating that tables in inventory exist in database."""
+    db_with_timezone.query.return_value = [
+        ("fact_sales",),
+        ("dim_customers",),
+    ]
+
+    tables = [
+        {"database": "sales_db", "table": "fact_sales"},
+        {"database": "sales_db", "table": "dim_customers"},
+    ]
+
+    planner.validate_tables_exist(db_with_timezone, "sales_db", tables)
+
+    query = db_with_timezone.query.call_args[0][0]
+    assert "SHOW TABLES FROM `sales_db`" in query
+
+
+def test_should_raise_error_when_tables_do_not_exist(db_with_timezone):
+    """Test that validate_tables_exist raises error when tables don't exist in database."""
+    db_with_timezone.query.return_value = [
+        ("fact_sales",),
+    ]
+
+    tables = [
+        {"database": "sales_db", "table": "fact_sales"},
+        {"database": "sales_db", "table": "invalid_table"},
+        {"database": "sales_db", "table": "another_invalid"},
+    ]
+
+    with pytest.raises(exceptions.InvalidTablesInInventoryError) as exc_info:
+        planner.validate_tables_exist(db_with_timezone, "sales_db", tables)
+
+    assert exc_info.value.database == "sales_db"
+    assert exc_info.value.group == None
+    assert "invalid_table" in exc_info.value.invalid_tables
+    assert "another_invalid" in exc_info.value.invalid_tables
+    assert "fact_sales" not in exc_info.value.invalid_tables
+
+
+def test_should_skip_validation_for_wildcard_tables(db_with_timezone):
+    """Test that wildcard tables skip validation."""
+    tables = [
+        {"database": "sales_db", "table": "*"},
+    ]
+
+    planner.validate_tables_exist(db_with_timezone, "sales_db", tables)
+
+    db_with_timezone.query.assert_not_called()
+
+
+def test_should_validate_only_non_wildcard_tables(db_with_timezone):
+    """Test that validation only checks non-wildcard tables."""
+    db_with_timezone.query.return_value = [
+        ("fact_sales",),
+    ]
+
+    tables = [
+        {"database": "sales_db", "table": "*"},
+        {"database": "sales_db", "table": "fact_sales"},
+    ]
+
+    planner.validate_tables_exist(db_with_timezone, "sales_db", tables)
+
+    db_with_timezone.query.assert_called_once()
+
+
+def test_should_validate_only_tables_for_target_database(db_with_timezone):
+    """Test that validation only checks tables for the target database."""
+    db_with_timezone.query.return_value = [
+        ("fact_sales",),
+    ]
+
+    tables = [
+        {"database": "sales_db", "table": "fact_sales"},
+        {"database": "other_db", "table": "other_table"},
+    ]
+
+    planner.validate_tables_exist(db_with_timezone, "sales_db", tables)
+
+    query = db_with_timezone.query.call_args[0][0]
+    assert "SHOW TABLES FROM `sales_db`" in query
+
+
+def test_should_handle_empty_tables_list_in_validation(db_with_timezone):
+    """Test that validation handles empty tables list gracefully."""
+    tables = []
+
+    planner.validate_tables_exist(db_with_timezone, "sales_db", tables)
+
+    db_with_timezone.query.assert_not_called()
+
+
+def test_should_handle_query_error_during_validation(db_with_timezone):
+    """Test that validation handles query errors appropriately."""
+    db_with_timezone.query.side_effect = Exception("Database connection error")
+
+    tables = [
+        {"database": "sales_db", "table": "fact_sales"},
+    ]
+
+    with pytest.raises(Exception) as exc_info:
+        planner.validate_tables_exist(db_with_timezone, "sales_db", tables)
+
+    assert "Database connection error" in str(exc_info.value)

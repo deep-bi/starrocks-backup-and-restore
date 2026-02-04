@@ -77,6 +77,15 @@ port: 9030              # MySQL protocol port
 user: "root"            # Database user with backup/restore privileges
 database: "your_database"   # Database containing tables to backup
 repository: "your_repo_name"  # Repository created via CREATE REPOSITORY in StarRocks
+
+# Optional: Define table inventory groups directly in config
+table_inventory:
+  - group: "production"
+    tables:
+      - database: "mydb"
+        table: "users"
+      - database: "mydb"
+        table: "orders"
 ```
 
 Set password:
@@ -93,7 +102,11 @@ See [Configuration Reference](docs/configuration.md) for TLS and advanced option
 starrocks-br init --config config.yaml
 ```
 
-**Define inventory groups** (in StarRocks):
+This creates the `ops` database and automatically populates table inventory from your config (if defined).
+
+**Note:** If you modify the `table_inventory` in your config file, rerun `starrocks-br init --config config.yaml` to update the database.
+
+**Alternative: Define inventory groups manually** (in StarRocks):
 ```sql
 INSERT INTO ops.table_inventory (inventory_group, database_name, table_name)
 VALUES

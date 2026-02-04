@@ -186,5 +186,220 @@ def test_validate_config_with_valid_tls_should_pass(tls_config):
     if tls_config is not None:
         cfg["tls"] = tls_config
 
-    # Should not raise any exceptions
     config.validate_config(cfg)
+
+
+def test_should_accept_config_with_custom_ops_database():
+    cfg = {
+        "host": "127.0.0.1",
+        "port": 9030,
+        "user": "root",
+        "database": "test_db",
+        "repository": "test_repo",
+        "ops_database": "custom_ops",
+    }
+
+    config.validate_config(cfg)
+
+
+def test_should_accept_config_without_ops_database():
+    cfg = {
+        "host": "127.0.0.1",
+        "port": 9030,
+        "user": "root",
+        "database": "test_db",
+        "repository": "test_repo",
+    }
+
+    config.validate_config(cfg)
+
+
+def test_should_load_ops_database_field_when_present():
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write("""
+        host: "127.0.0.1"
+        port: 9030
+        user: "root"
+        database: "test_db"
+        repository: "test_repo"
+        ops_database: "custom_ops"
+        """)
+        f.flush()
+        config_path = f.name
+
+    try:
+        cfg = config.load_config(config_path)
+        assert cfg["ops_database"] == "custom_ops"
+    finally:
+        os.unlink(config_path)
+
+
+def test_should_accept_config_with_table_inventory():
+    cfg = {
+        "host": "127.0.0.1",
+        "port": 9030,
+        "user": "root",
+        "database": "test_db",
+        "repository": "test_repo",
+        "table_inventory": [
+            {
+                "group": "daily_incremental",
+                "tables": [
+                    {"database": "sales_db", "table": "fact_sales"},
+                    {"database": "orders_db", "table": "fact_orders"},
+                ],
+            },
+            {
+                "group": "monthly_full",
+                "tables": [
+                    {"database": "config_db", "table": "*"},
+                ],
+            },
+        ],
+    }
+
+    config.validate_config(cfg)
+
+
+def test_should_load_table_inventory_from_yaml():
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write("""
+        host: "127.0.0.1"
+        port: 9030
+        user: "root"
+        database: "test_db"
+        repository: "test_repo"
+        table_inventory:
+          - group: "daily_incremental"
+            tables:
+              - database: "sales_db"
+                table: "fact_sales"
+              - database: "orders_db"
+                table: "fact_orders"
+          - group: "monthly_full"
+            tables:
+              - database: "config_db"
+                table: "*"
+        """)
+        f.flush()
+        config_path = f.name
+
+    try:
+        cfg = config.load_config(config_path)
+        assert "table_inventory" in cfg
+        assert len(cfg["table_inventory"]) == 2
+        assert cfg["table_inventory"][0]["group"] == "daily_incremental"
+        assert len(cfg["table_inventory"][0]["tables"]) == 2
+        assert cfg["table_inventory"][0]["tables"][0]["database"] == "sales_db"
+        assert cfg["table_inventory"][0]["tables"][0]["table"] == "fact_sales"
+    finally:
+        os.unlink(config_path)
+
+
+def test_should_extract_table_inventory_entries():
+    cfg = {
+        "host": "127.0.0.1",
+        "port": 9030,
+        "user": "root",
+        "database": "test_db",
+        "repository": "test_repo",
+        "table_inventory": [
+            {
+                "group": "daily_incremental",
+                "tables": [
+                    {"database": "sales_db", "table": "fact_sales"},
+                    {"database": "orders_db", "table": "fact_orders"},
+                ],
+            },
+            {
+                "group": "monthly_full",
+                "tables": [
+                    {"database": "config_db", "table": "*"},
+                ],
+            },
+        ],
+    }
+
+    entries = config.get_table_inventory_entries(cfg)
+
+    assert len(entries) == 3
+    assert entries[0] == ("daily_incremental", "sales_db", "fact_sales")
+    assert entries[1] == ("daily_incremental", "orders_db", "fact_orders")
+    assert entries[2] == ("monthly_full", "config_db", "*")
+
+
+def test_should_return_empty_list_when_table_inventory_not_present():
+    cfg = {
+        "host": "127.0.0.1",
+        "port": 9030,
+        "user": "root",
+        "database": "test_db",
+        "repository": "test_repo",
+    }
+
+    entries = config.get_table_inventory_entries(cfg)
+
+    assert entries == []
+
+
+@pytest.mark.parametrize(
+    "table_inventory,expected_error",
+    [
+        (
+            "not-a-list",
+            "'table_inventory' must be a list",
+        ),
+        (
+            [123],
+            "Each entry in 'table_inventory' must be a dictionary",
+        ),
+        (
+            [{"tables": []}],
+            "Each entry in 'table_inventory' must have a 'group' field",
+        ),
+        (
+            [{"group": "test"}],
+            "Each entry in 'table_inventory' must have a 'tables' field",
+        ),
+        (
+            [{"group": "test", "tables": "not-a-list"}],
+            "'tables' field must be a list",
+        ),
+        (
+            [{"group": "test", "tables": ["not-a-dict"]}],
+            "Each table entry must be a dictionary",
+        ),
+        (
+            [{"group": "test", "tables": [{"table": "foo"}]}],
+            "Each table entry must have 'database' and 'table' fields",
+        ),
+        (
+            [{"group": "test", "tables": [{"database": "foo"}]}],
+            "Each table entry must have 'database' and 'table' fields",
+        ),
+        (
+            [{"group": 123, "tables": []}],
+            "'group' field must be a string",
+        ),
+        (
+            [{"group": "test", "tables": [{"database": 123, "table": "foo"}]}],
+            "'database' and 'table' fields must be strings",
+        ),
+        (
+            [{"group": "test", "tables": [{"database": "foo", "table": 123}]}],
+            "'database' and 'table' fields must be strings",
+        ),
+    ],
+)
+def test_should_reject_invalid_table_inventory_config(table_inventory, expected_error):
+    cfg = {
+        "host": "127.0.0.1",
+        "port": 9030,
+        "user": "root",
+        "database": "test_db",
+        "repository": "test_repo",
+        "table_inventory": table_inventory,
+    }
+
+    with pytest.raises(exceptions.ConfigValidationError, match=expected_error):
+        config.validate_config(cfg)

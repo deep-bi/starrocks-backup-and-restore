@@ -15,71 +15,117 @@
 from . import logger
 
 
-def initialize_ops_schema(db) -> None:
+def initialize_ops_schema(
+    db, ops_database: str = "ops", table_inventory_entries: list[tuple[str, str, str]] | None = None
+) -> None:
     """Initialize the ops database and all required control tables.
 
-    Creates empty ops tables. Does NOT populate with sample data.
-    Users must manually insert their table inventory records.
+    Creates empty ops tables. Optionally populates table_inventory from entries.
+
+    Args:
+        db: Database connection
+        ops_database: Name of the ops database (defaults to "ops")
+        table_inventory_entries: Optional list of (group, database, table) tuples to bootstrap
     """
 
-    logger.info("Creating ops database...")
-    db.execute("CREATE DATABASE IF NOT EXISTS ops")
-    logger.success("ops database created")
+    logger.info(f"Creating {ops_database} database...")
+    db.execute(f"CREATE DATABASE IF NOT EXISTS {ops_database}")
+    logger.success(f"{ops_database} database created")
 
-    logger.info("Creating ops.table_inventory...")
-    db.execute(get_table_inventory_schema())
-    logger.success("ops.table_inventory created")
+    logger.info(f"Creating {ops_database}.table_inventory...")
+    db.execute(get_table_inventory_schema(ops_database=ops_database))
+    logger.success(f"{ops_database}.table_inventory created")
 
-    logger.info("Creating ops.backup_history...")
-    db.execute(get_backup_history_schema())
-    logger.success("ops.backup_history created")
+    logger.info(f"Creating {ops_database}.backup_history...")
+    db.execute(get_backup_history_schema(ops_database=ops_database))
+    logger.success(f"{ops_database}.backup_history created")
 
-    logger.info("Creating ops.restore_history...")
-    db.execute(get_restore_history_schema())
-    logger.success("ops.restore_history created")
+    logger.info(f"Creating {ops_database}.restore_history...")
+    db.execute(get_restore_history_schema(ops_database=ops_database))
+    logger.success(f"{ops_database}.restore_history created")
 
-    logger.info("Creating ops.run_status...")
-    db.execute(get_run_status_schema())
-    logger.success("ops.run_status created")
+    logger.info(f"Creating {ops_database}.run_status...")
+    db.execute(get_run_status_schema(ops_database=ops_database))
+    logger.success(f"{ops_database}.run_status created")
 
-    logger.info("Creating ops.backup_partitions...")
-    db.execute(get_backup_partitions_schema())
-    logger.success("ops.backup_partitions created")
+    logger.info(f"Creating {ops_database}.backup_partitions...")
+    db.execute(get_backup_partitions_schema(ops_database=ops_database))
+    logger.success(f"{ops_database}.backup_partitions created")
+
+    if table_inventory_entries:
+        logger.info(f"Bootstrapping {ops_database}.table_inventory from configuration...")
+        bootstrap_table_inventory(db, table_inventory_entries, ops_database=ops_database)
+        logger.success(
+            f"{ops_database}.table_inventory bootstrapped with {len(table_inventory_entries)} entries"
+        )
+
     logger.info("")
     logger.success("Schema initialized successfully!")
 
 
-def ensure_ops_schema(db) -> bool:
+def ensure_ops_schema(db, ops_database: str = "ops") -> bool:
     """Ensure ops schema exists, creating it if necessary.
 
     Returns True if schema was created, False if it already existed.
     This is called automatically before backup/restore operations.
     """
     try:
-        result = db.query("SHOW DATABASES LIKE 'ops'")
+        result = db.query(f"SHOW DATABASES LIKE '{ops_database}'")
 
         if not result:
-            initialize_ops_schema(db)
+            initialize_ops_schema(db, ops_database=ops_database)
             return True
 
-        db.execute("USE ops")
+        db.execute(f"USE {ops_database}")
         tables_result = db.query("SHOW TABLES")
 
         if not tables_result or len(tables_result) < 5:
-            initialize_ops_schema(db)
+            initialize_ops_schema(db, ops_database=ops_database)
             return True
 
         return False
 
     except Exception:
-        initialize_ops_schema(db)
+        initialize_ops_schema(db, ops_database=ops_database)
         return True
 
 
-def get_table_inventory_schema() -> str:
+def bootstrap_table_inventory(
+    db, entries: list[tuple[str, str, str]], ops_database: str = "ops"
+) -> None:
+    """Bootstrap table_inventory table with entries from configuration.
+
+    Args:
+        db: Database connection
+        entries: List of (group, database, table) tuples
+        ops_database: Name of the ops database (defaults to "ops")
+    """
+    if not entries:
+        return
+
+    unique_databases = {database for _, database, _ in entries}
+
+    for database_name in unique_databases:
+        result = db.query(f"SHOW DATABASES LIKE '{database_name}'")
+        if not result:
+            logger.warning(
+                f"Database '{database_name}' does not exist. "
+                f"Table inventory entries will be created, but backups will fail until the database is created."
+            )
+
+    for group, database, table in entries:
+        sql = f"""
+            INSERT INTO {ops_database}.table_inventory
+            (inventory_group, database_name, table_name)
+            VALUES ('{group}', '{database}', '{table}')
+        """
+        db.execute(sql)
+
+
+def get_table_inventory_schema(ops_database: str = "ops") -> str:
     """Get CREATE TABLE statement for table_inventory."""
-    return """
-    CREATE TABLE IF NOT EXISTS ops.table_inventory (
+    return f"""
+    CREATE TABLE IF NOT EXISTS {ops_database}.table_inventory (
         inventory_group STRING NOT NULL COMMENT "Group name for a set of tables",
         database_name STRING NOT NULL COMMENT "Database name",
         table_name STRING NOT NULL COMMENT "Table name, or '*' for all tables in database",
@@ -92,10 +138,10 @@ def get_table_inventory_schema() -> str:
     """
 
 
-def get_backup_history_schema() -> str:
+def get_backup_history_schema(ops_database: str = "ops") -> str:
     """Get CREATE TABLE statement for backup_history."""
-    return """
-    CREATE TABLE IF NOT EXISTS ops.backup_history (
+    return f"""
+    CREATE TABLE IF NOT EXISTS {ops_database}.backup_history (
         label STRING NOT NULL COMMENT "Unique backup snapshot label",
         backup_type STRING NOT NULL COMMENT "Type of backup: full or incremental",
         status STRING NOT NULL COMMENT "Final backup status: FINISHED, FAILED, CANCELLED, TIMEOUT",
@@ -110,10 +156,10 @@ def get_backup_history_schema() -> str:
     """
 
 
-def get_restore_history_schema() -> str:
+def get_restore_history_schema(ops_database: str = "ops") -> str:
     """Get CREATE TABLE statement for restore_history."""
-    return """
-    CREATE TABLE IF NOT EXISTS ops.restore_history (
+    return f"""
+    CREATE TABLE IF NOT EXISTS {ops_database}.restore_history (
         job_id STRING NOT NULL COMMENT "Unique restore job identifier",
         backup_label STRING NOT NULL COMMENT "Source backup snapshot label",
         restore_type STRING NOT NULL COMMENT "Type of restore: partition, table, or database",
@@ -130,10 +176,10 @@ def get_restore_history_schema() -> str:
     """
 
 
-def get_run_status_schema() -> str:
+def get_run_status_schema(ops_database: str = "ops") -> str:
     """Get CREATE TABLE statement for run_status."""
-    return """
-    CREATE TABLE IF NOT EXISTS ops.run_status (
+    return f"""
+    CREATE TABLE IF NOT EXISTS {ops_database}.run_status (
         scope STRING NOT NULL COMMENT "Job scope: backup or restore",
         label STRING NOT NULL COMMENT "Job label or identifier",
         state STRING NOT NULL DEFAULT "ACTIVE" COMMENT "Job state: ACTIVE, FINISHED, FAILED, or CANCELLED",
@@ -145,12 +191,12 @@ def get_run_status_schema() -> str:
     """
 
 
-def get_backup_partitions_schema() -> str:
+def get_backup_partitions_schema(ops_database: str = "ops") -> str:
     """Get CREATE TABLE statement for backup_partitions."""
-    return """
-    CREATE TABLE IF NOT EXISTS ops.backup_partitions (
+    return f"""
+    CREATE TABLE IF NOT EXISTS {ops_database}.backup_partitions (
         key_hash STRING NOT NULL COMMENT "MD5 hash of composite key (label, database_name, table_name, partition_name)",
-        label STRING NOT NULL COMMENT "The backup label this partition belongs to. FK to ops.backup_history.label.",
+        label STRING NOT NULL COMMENT "The backup label this partition belongs to. FK to {ops_database}.backup_history.label.",
         database_name STRING NOT NULL COMMENT "The name of the database the partition belongs to.",
         table_name STRING NOT NULL COMMENT "The name of the table the partition belongs to.",
         partition_name STRING NOT NULL COMMENT "The name of the specific partition.",

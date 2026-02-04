@@ -181,6 +181,7 @@ def execute_backup(
     backup_type: Literal["incremental", "full"] = None,
     scope: str = "backup",
     database: str | None = None,
+    ops_database: str = "ops",
 ) -> dict:
     """Execute a complete backup workflow: submit command and monitor progress.
 
@@ -193,6 +194,7 @@ def execute_backup(
         backup_type: Type of backup (for logging)
         scope: Job scope (for concurrency control)
         database: Database name (required for SHOW BACKUP)
+        ops_database: Name of ops database (default: "ops")
 
     Returns dictionary with keys: success, final_status, error_message
     """
@@ -233,13 +235,18 @@ def execute_backup(
                     "finished_at": finished_at,
                     "error_message": None if success else (final_status["state"] or ""),
                 },
+                ops_database=ops_database,
             )
         except Exception:
             pass
 
         try:
             concurrency.complete_job_slot(
-                db, scope=scope, label=label, final_state=final_status["state"]
+                db,
+                scope=scope,
+                label=label,
+                final_state=final_status["state"],
+                ops_database=ops_database,
             )
         except Exception:
             pass
@@ -271,7 +278,7 @@ def _build_error_message(final_status: dict, label: str, database: str) -> str:
             f"Backup tracking lost for '{label}' in database '{database}'. "
             f"Another backup operation overwrote the last backup status visible in SHOW BACKUP. "
             f"This indicates a concurrency issue - only one backup per database should run at a time. "
-            f"Recommendation: Use ops.run_status concurrency control to prevent simultaneous backups, "
+            f"Recommendation: Use run_status concurrency control to prevent simultaneous backups, "
             f"or verify if another tool/user is running backups on this database."
         )
     elif state == "CANCELLED":

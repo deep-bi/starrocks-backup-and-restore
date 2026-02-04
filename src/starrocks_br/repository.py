@@ -30,7 +30,7 @@ def ensure_repository(db, name: str) -> None:
         raise RuntimeError(
             f"Repository '{name}' not found. Please create it first using:\n"
             f"  CREATE REPOSITORY {name} WITH BROKER ON LOCATION '...' PROPERTIES(...)\n"
-            f"For examples, see: https://docs.starrocks.io/docs/sql-reference/sql-statements/data-definition/backup_restore/CREATE_REPOSITORY/"
+            f"For examples, see: https://docs.starrocks.io/docs/sql-reference/sql-statements/backup_restore/CREATE_REPOSITORY/"
         )
 
     # SHOW REPOSITORIES returns: RepoId, RepoName, CreateTime, IsReadOnly, Location, Broker, ErrMsg

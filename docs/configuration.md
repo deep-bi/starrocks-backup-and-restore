@@ -21,8 +21,48 @@ repository: "your_repo_name"
 | `user` | string | Yes | Database user with backup/restore privileges |
 | `database` | string | Yes | Database containing tables to backup |
 | `repository` | string | Yes | Repository name (created via `CREATE REPOSITORY`) |
+| `ops_database` | string | No | Custom name for ops database (default: "ops") |
+| `table_inventory` | list | No | Table inventory groups definition (see below) |
 
 **Note:** The `database` field specifies which database contains your tables. The `ops` database is created automatically.
+
+## Table Inventory Configuration
+
+Define table inventory groups directly in your config file to avoid manual SQL inserts.
+
+```yaml
+host: "127.0.0.1"
+port: 9030
+user: "root"
+database: "quickstart"
+repository: "minio_repo"
+
+table_inventory:
+  - group: "full_backup"
+    tables:
+      - database: "production_db"
+        table: "*"  # Wildcard for all tables
+
+  - group: "fact_tables"
+    tables:
+      - database: "production_db"
+        table: "fact_sales"
+      - database: "production_db"
+        table: "fact_orders"
+```
+
+### Table Inventory YAML Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `group` | string | Yes | Inventory group name |
+| `tables` | list | Yes | List of table definitions |
+| `tables[].database` | string | Yes | Database name |
+| `tables[].table` | string | Yes | Table name or `"*"` for all tables |
+
+When you run `starrocks-br init`, table inventory is automatically populated from your config. Manual SQL INSERT statements still work if you prefer that approach.
+
+**Note:** If you modify the `table_inventory` section in your config file after the initial setup, you must rerun `starrocks-br init --config <config_file>` to update the database with your changes. The table inventory is persisted in the `ops.table_inventory` table and is not automatically updated when you change the config file.
 
 ## Password Management
 

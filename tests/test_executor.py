@@ -819,7 +819,7 @@ def test_should_build_descriptive_error_message_for_lost_state():
     assert "my_backup" in error_msg
     assert "sales_db" in error_msg
     assert "concurrency issue" in error_msg
-    assert "ops.run_status" in error_msg
+    assert "run_status" in error_msg
 
 
 def test_should_build_descriptive_error_message_for_cancelled_state():

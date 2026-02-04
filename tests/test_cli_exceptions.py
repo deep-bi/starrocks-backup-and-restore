@@ -226,7 +226,7 @@ class TestBackupIncrementalExceptionHandling:
         assert result.exit_code == 1
         assert "ops schema was auto-created" in result.output
         assert "starrocks-br init" in result.output
-        assert "ops.table_inventory" in result.output
+        assert "table_inventory table" in result.output
 
     def test_handles_lost_state(
         self,
@@ -507,6 +507,7 @@ class TestBackupFullExceptionHandling:
         mock_initialized_schema,  # noqa: ARG002
         mock_healthy_cluster,  # noqa: ARG002
         mock_repo_exists,  # noqa: ARG002
+        mock_validate_tables_exist,  # noqa: ARG002
         mocker,
     ):
         runner = CliRunner()
@@ -538,6 +539,7 @@ class TestBackupFullExceptionHandling:
         mock_initialized_schema,  # noqa: ARG002
         mock_healthy_cluster,  # noqa: ARG002
         mock_repo_exists,  # noqa: ARG002
+        mock_validate_tables_exist,  # noqa: ARG002
         setup_password_env,  # noqa: ARG002
         mocker,
     ):
@@ -593,7 +595,7 @@ class TestBackupFullExceptionHandling:
         assert result.exit_code == 1
         assert "ops schema was auto-created" in result.output
         assert "starrocks-br init" in result.output
-        assert "ops.table_inventory" in result.output
+        assert "table_inventory table" in result.output
 
     def test_handles_lost_state(
         self,
@@ -602,6 +604,7 @@ class TestBackupFullExceptionHandling:
         mock_initialized_schema,  # noqa: ARG002
         mock_healthy_cluster,  # noqa: ARG002
         mock_repo_exists,  # noqa: ARG002
+        mock_validate_tables_exist,  # noqa: ARG002
         setup_password_env,  # noqa: ARG002
         mocker,
     ):
@@ -644,6 +647,7 @@ class TestBackupFullExceptionHandling:
         mock_initialized_schema,  # noqa: ARG002
         mock_healthy_cluster,  # noqa: ARG002
         mock_repo_exists,  # noqa: ARG002
+        mock_validate_tables_exist,  # noqa: ARG002
         setup_password_env,  # noqa: ARG002
         mocker,
     ):
@@ -690,6 +694,7 @@ class TestBackupFullExceptionHandling:
         mock_initialized_schema,  # noqa: ARG002
         mock_healthy_cluster,  # noqa: ARG002
         mock_repo_exists,  # noqa: ARG002
+        mock_validate_tables_exist,  # noqa: ARG002
         setup_password_env,  # noqa: ARG002
         mocker,
     ):
@@ -796,7 +801,7 @@ class TestRestoreExceptionHandling:
         assert result.exit_code == 1
         assert "ops schema was auto-created" in result.output
         assert "starrocks-br init" in result.output
-        assert "ops.table_inventory" in result.output
+        assert "table_inventory table" in result.output
 
     @pytest.mark.parametrize(
         "scenario,mock_behavior,expected_msg",
