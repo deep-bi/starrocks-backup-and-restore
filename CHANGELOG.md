@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0a1] - 2026-02-04 (Alpha)
+
+> **Note**: This is an alpha release. The `prune` command requires StarRocks with `DROP SNAPSHOT` support, which is not yet available upstream.
+
+### Added
+- **New Command**: `prune` - Manage backup lifecycle with flexible retention policies
+  - Multiple pruning strategies: `--keep-last`, `--older-than`, `--snapshot`, `--snapshots`
+  - Group-specific pruning with `--group` filter
+  - Dry-run mode (`--dry-run`) to preview deletions before executing
+  - Auto-confirmation with `--yes` flag for automation
+  - Automatically cleans up backup history and partition metadata after deletion
+  - Comprehensive documentation with integration testing guide
+- **Test Coverage**: 52 comprehensive tests (31 unit tests + 21 integration tests) for prune command
+  - 100% code coverage for `prune.py` module
+
 ## [0.6.0] - 2026-02-04
 
 ### Added
