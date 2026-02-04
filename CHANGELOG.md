@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-02-04
+
+### Added
+- **Configurable ops database name**: Customize the internal tracking database name via `ops_database` configuration option
+- **Table inventory support in config.yaml**: Define table groups directly in configuration file using `table_inventories` section
+- **Repository validation in init command**: The `init` command now validates that the repository specified in config.yaml actually exists in StarRocks
+- **Database existence warnings**: Configuration loading now warns when a database specified in table inventory doesn't exist
+
+### Fixed
+- **Incremental backup restore**: Fixed partition-level restore for incremental backups to correctly apply partition data
+- **Missing table restore**: Fixed restore to properly handle tables that only exist in incremental backups but not in the full backup
+- **Planner error messages**: Display clear error messages when tables within a table inventory do not exist
+
 ## [0.5.2] - 2025-12-09
 
 ### Fixed
